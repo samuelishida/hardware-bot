@@ -109,13 +109,19 @@ def make_prices_table_embed(
     for r in records:
         status = "✅ Em estoque" if r.available else "❌ Indisponível"
         highlight = "⭐ " if (r.price is not None and r.price == lowest_price) else ""
+        
+        # Add hyperlink to store name if URL available
+        store_name = format_store_name(r.store_id)
+        if r.url and r.available:
+            store_name = f"[{store_name}]({r.url})"
+        
         embed.add_field(
-            name=format_store_name(r.store_id),
+            name=store_name,
             value=f"{highlight}**{format_price_brl(r.price)}** · {status}",
             inline=True,
         )
     
-    embed.set_footer(text="PreçoBot · Use /alerta <valor> para ser notificado")
+    embed.set_footer(text="PreçoBot v2.1 · Use /alerta <valor> para ser notificado")
     return embed
 
 
@@ -166,8 +172,13 @@ def make_search_results_embed(
             value_parts.append(r.stock_label)
         value = "\n".join(value_parts)
         
+        # Add hyperlink to store name if URL available
+        field_name = f"{status} {store}"
+        if r.url:
+            field_name = f"{status} [{store}]({r.url})"
+        
         embed.add_field(
-            name=f"{status} {store}",
+            name=field_name,
             value=value,
             inline=True,
         )
@@ -180,7 +191,7 @@ def make_search_results_embed(
             inline=False
         )
     
-    embed.set_footer(text="PreçoBot v2.0 · Busca sob demanda")
+    embed.set_footer(text="PreçoBot v2.1 · Busca sob demanda")
     return embed
 
 

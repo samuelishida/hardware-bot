@@ -311,8 +311,16 @@ class MonitorCog(commands.Cog):
             for r in records:
                 icon = "✅" if r.available else "❌"
                 name = STORE_DISPLAY_NAMES.get(r.store_id, r.store_id.title())
-                price_str = f"R$ {r.price:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if r.price else "—"
-                store_lines.append(f"{icon} **{name}** — {price_str}")
+                if r.price:
+                    price_str = f"R$ {r.price:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                    if r.url and r.available:
+                        store_lines.append(f"{icon} [{name}]({r.url}) — {price_str}")
+                    else:
+                        store_lines.append(f"{icon} **{name}** — {price_str}")
+                else:
+                    # No price = scraper error/timeout
+                    status_msg = "Timeout" if "timeout" in (r.stock_label or "").lower() else "Não encontrado"
+                    store_lines.append(f"{icon} **{name}** — {status_msg}")
             embed.add_field(name="🏪 Lojas", value="\n".join(store_lines), inline=False)
             last = records[0].scraped_at if records else "nunca"
             embed.add_field(name="🕐 Última varredura", value=last, inline=True)
