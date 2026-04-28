@@ -1,0 +1,49 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+.pytest_cache/
+*.pytest_cache/
+
+# ── Environment ───────────────────────────────────────────────────────────────
+.env
+.venv/
+venv/
+env/
+
+# ── Database ──────────────────────────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+
+# ── IDE / Editor ──────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Playwright / Browser ──────────────────────────────────────────────────────
+playwright-browsers/
+ms-playwright/
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Project-specific ──────────────────────────────────────────────────────────
+# Keep .env.example tracked, but not .env
+!.env.example
+ml_cookies.json
+.claude/
