@@ -112,8 +112,10 @@ class MonitorCog(commands.Cog):
         try:
             await interaction.response.defer()
         except discord.errors.NotFound:
+            logger.warning("Interaction expired before defer")
             return
-        except Exception:
+        except Exception as e:
+            logger.error(f"Failed to defer interaction: {e}")
             return
 
         product = self.pm.parse_product_name(produto)
@@ -140,16 +142,32 @@ class MonitorCog(commands.Cog):
                     )
                 )
             except Exception:
-                await interaction.followup.send(
-                    f"❌ Nenhum resultado para **{product.name}**",
-                )
+                try:
+                    await interaction.followup.send(
+                        f"❌ Nenhum resultado para **{product.name}**",
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to send 'no results' message: {e}")
             return
 
-        embed = make_search_results_embed(results, product.name)
+        try:
+            embed = make_search_results_embed(results, product.name)
+        except Exception as e:
+            logger.error(f"Failed to create search results embed: {e}", exc_info=True)
+            await interaction.followup.send(
+                f"❌ Erro ao formatar resultados. Tente novamente.",
+                ephemeral=True
+            )
+            return
+
         try:
             await msg.edit(content=None, embed=embed)
-        except Exception:
-            await interaction.followup.send(embed=embed)
+        except Exception as e:
+            logger.error(f"Failed to edit search message: {e}")
+            try:
+                await interaction.followup.send(embed=embed)
+            except Exception as e2:
+                logger.error(f"Failed to send search results as followup: {e2}")
 
     # ════════════════════════════════════════════════════════════════════════
     # TRACKING COMMANDS

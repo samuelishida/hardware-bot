@@ -152,14 +152,32 @@ def make_search_results_embed(
         timestamp=datetime.now(),
     )
     
-    for r in results:
+    # Discord limits embeds to 25 fields
+    display_results = results[:25]
+    
+    for r in display_results:
         store = format_store_name(r.store_id)
         price = format_price_brl(r.price)
         status = "✅" if r.available else "❌"
+        
+        # Build value with price and optional stock label
+        value_parts = [price]
+        if r.stock_label:
+            value_parts.append(r.stock_label)
+        value = "\n".join(value_parts)
+        
         embed.add_field(
             name=f"{status} {store}",
-            value=f"{price}\n{r.stock_label or ''}",
+            value=value,
             inline=True,
+        )
+    
+    # Indicate if results were truncated
+    if len(results) > 25:
+        embed.add_field(
+            name="⚠️ Truncado",
+            value=f"Mostrando 25 de {len(results)} resultados",
+            inline=False
         )
     
     embed.set_footer(text="PreçoBot v2.0 · Busca sob demanda")
