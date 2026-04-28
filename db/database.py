@@ -87,15 +87,15 @@ async def acquire_lock(job_name: str, ttl_minutes: int = 10) -> bool:
     Lock auto-expires after ttl_minutes.
     """
     async with aiosqlite.connect(DB_PATH) as db:
-        # Delete expired locks
+        # Delete expired locks (both stored and compared in localtime)
         await db.execute(
-            "DELETE FROM scheduler_locks WHERE expires_at < datetime('now','localtime')"
+            "DELETE FROM scheduler_locks WHERE expires_at < datetime('now', 'localtime')"
         )
-        
-        # Try to insert new lock
+
+        # Try to insert new lock (expires_at stored as localtime)
         cursor = await db.execute(
             """INSERT OR IGNORE INTO scheduler_locks (job_name, expires_at)
-               VALUES (?, datetime('now', '+' || ? || ' minutes'))""",
+               VALUES (?, datetime('now', 'localtime', '+' || ? || ' minutes'))""",
             (job_name, ttl_minutes)
         )
         await db.commit()

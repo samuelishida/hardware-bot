@@ -50,29 +50,9 @@ class MercadoLivreScraper(BaseScraper):
         self.search_term = search_term
 
     async def __aenter__(self):
-        if self.browser is None:
-            from playwright.async_api import async_playwright
-            self._pw = await async_playwright().start()
-            self.browser = await self._pw.chromium.launch(
-                headless=True,
-                args=[
-                    "--disable-gpu",
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-blink-features=AutomationControlled",
-                    "--disable-features=IsolateOrigins,site-per-process",
-                    "--window-size=1920,1080",
-                ],
-            )
-            self._owns_browser = True
-        else:
-            self._owns_browser = False
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
-        if self._owns_browser and self.browser:
-            await self.browser.close()
-            await self._pw.stop()
         return False
 
     async def scrape(self) -> ScrapeResult:
@@ -261,8 +241,11 @@ class MercadoLivreScraper(BaseScraper):
 
             products = await page.evaluate(
                 """(searchTerm) => {
-                const keywords = searchTerm.replace(/-/g, ' ').toLowerCase().split(' ');
+                const keywords = searchTerm.replace(/-/g, ' ').toLowerCase().split(' ').filter(Boolean);
+                const sigKws = keywords.filter(kw => kw.length >= 2);
+                const matchKws = sigKws.length > 0 ? sigKws : keywords;
                 const modelKws = keywords.filter(kw => /[0-9]/.test(kw));
+                const SYSTEM_EXCL = ['pc gamer','pc gaming','computador gamer','computador completo','desktop gamer','workstation','pc completo','notebook','laptop','usado','seminovo'];
 
                 const selectors = [
                     'li.ui-search-layout__item',
@@ -281,10 +264,12 @@ class MercadoLivreScraper(BaseScraper):
                 const results = [];
                 for (const card of cards) {
                     const text = card.innerText.toLowerCase();
+                    // Exclude pre-built systems
+                    if (SYSTEM_EXCL.some(p => text.includes(p))) continue;
                     // ALL model keywords must match — prevents "ryzen 5" matching a motherboard
                     if (modelKws.length > 0 && !modelKws.every(kw => text.includes(kw))) continue;
-                    // At least one general keyword must match
-                    if (!keywords.some(kw => text.includes(kw))) continue;
+                    // All significant keywords must match (prevents "4060" alone matching accessories)
+                    if (matchKws.length > 0 && !matchKws.every(kw => text.includes(kw))) continue;
 
                     // Use specific price element — avoids picking up installment amounts
                     let price = null;

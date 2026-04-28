@@ -30,27 +30,16 @@ class TeraScraper(BaseScraper):
         return ScrapeResult(self.store_id, None, False, "Erro", self.search_url)
 
     async def _browser_attempt(self) -> ScrapeResult | None:
-        from playwright.async_api import async_playwright
-
         ua = random.choice(USER_AGENTS)
         vp = random.choice(VIEWPORTS)
-        pw = None
-        browser = None
-        try:
-            pw = await async_playwright().start()
-            browser = await pw.chromium.launch(
-                headless=True,
-                args=[
-                    "--disable-gpu",
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-blink-features=AutomationControlled",
-                    "--disable-features=IsolateOrigins,site-per-process",
-                    "--window-size=1920,1080",
-                ],
-            )
 
-            context = await browser.new_context(
+        if self.browser is None:
+            logger.warning("[terabyte] Sem browser compartilhado, pulando.")
+            return None
+
+        context = None
+        try:
+            context = await self.browser.new_context(
                 user_agent=ua,
                 locale="pt-BR",
                 timezone_id="America/Sao_Paulo",
@@ -98,8 +87,11 @@ class TeraScraper(BaseScraper):
             # Evaluate immediately — no extra wait, or the SPA will replace products
             products = await page.evaluate(
                 """(searchTerm) => {
-                const keywords = searchTerm.replace(/-/g, ' ').toLowerCase().split(' ');
+                const keywords = searchTerm.replace(/-/g, ' ').toLowerCase().split(' ').filter(Boolean);
+                const sigKws = keywords.filter(kw => kw.length >= 2);
+                const matchKws = sigKws.length > 0 ? sigKws : keywords;
                 const modelKws = keywords.filter(kw => /[0-9]/.test(kw));
+                const SYSTEM_EXCL = ['pc gamer','pc gaming','computador gamer','computador completo','desktop gamer','workstation','pc completo','notebook','laptop','usado','seminovo'];
 
                 const items = document.querySelectorAll('div.product-item');
                 const results = [];
@@ -112,8 +104,11 @@ class TeraScraper(BaseScraper):
                     const url = nameEl.href;
                     const nameLower = name.toLowerCase();
 
+                    // Exclude pre-built systems
+                    if (SYSTEM_EXCL.some(p => nameLower.includes(p))) continue;
+
                     if (!modelKws.every(kw => nameLower.includes(kw))) continue;
-                    if (!keywords.some(kw => nameLower.includes(kw))) continue;
+                    if (matchKws.length > 0 && !matchKws.every(kw => nameLower.includes(kw))) continue;
 
                     const newPriceEl = item.querySelector('div.product-item__new-price');
                     const priceText = newPriceEl ? newPriceEl.innerText.trim() : '';
@@ -160,8 +155,6 @@ class TeraScraper(BaseScraper):
             logger.error(f"[terabyte] Browser attempt falhou: {e}")
             return None
         finally:
-            if browser:
-                await browser.close()
-            if pw:
-                await pw.stop()
+            if context:
+                await context.close()
 

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from config import PRICE_DROP_THRESHOLD_PCT, DEFAULT_PRODUCT
 from bot.embeds import make_price_drop_embed, make_restock_embed, make_user_alert_embed
+from db.repositories import cancel_user_alert
 from scrapers.base import ScrapeResult
 
 if TYPE_CHECKING:
@@ -68,6 +69,12 @@ async def dispatch_user_alerts(
         valid_results: List of valid scrape results.
         default_product_name: Default product name for legacy alerts.
     """
+    # Only fire alerts that match this product
+    active_alerts = [
+        a for a in active_alerts
+        if a.get("product_name") == default_product_name
+    ]
+
     if not active_alerts:
         return
 
@@ -104,7 +111,6 @@ async def dispatch_user_alerts(
             embed = make_user_alert_embed(triggering, alert["target_price"], product_name=product_name)
             await user.send(embed=embed)
             logger.info(f"Alerta de usuário {alert['discord_user']} disparado: R${triggering.price}")
-            from db.repositories import deactivate_alert
-            await deactivate_alert(alert["discord_user"])
+            await cancel_user_alert(alert["discord_user"], alert.get("product_name"))
         except Exception as e:
             logger.warning(f"Falha ao enviar DM para {alert['discord_user']}: {e}")

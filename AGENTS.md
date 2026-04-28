@@ -45,9 +45,10 @@ tests/
 
 ## Key Patterns
 
-- **Scrapers**: Subclass `BaseScraper`, implement `async scrape() -> ScrapeResult`. Use `browser` kwarg for Playwright-based scrapers. `MercadoLivreScraper` uses HTTP API first, Playwright fallback on 403.
+- **Scrapers**: Subclass `BaseScraper`, implement `async scrape() -> ScrapeResult`. Use `browser` kwarg for Playwright-based scrapers. `MercadoLivreScraper` is browser-only (Playwright with stealth + cookie persistence via `ml_cookies.json`).
 - **Scraper instantiation**: ALWAYS use keyword args: `cls(browser=b, search_term=term)`. Never positional — `browser` and `search_term` can swap.
-- **MercadoLivreScraper fallback**: `_scrape_via_browser()` creates its own Playwright instance independently (does NOT use `self.browser` which may be a string). Owns its lifecycle in try/finally.
+- **MercadoLivreScraper**: `_scrape_via_browser()` creates its own Playwright instance independently (does NOT use `self.browser`). Owns its lifecycle in try/finally.
+- **Scheduler**: Uses APScheduler `interval` trigger with `minutes=SCRAPE_INTERVAL_MINUTES`. Set `SCRAPE_INTERVAL_MINUTES` in `.env` (default 60).
 - **Python 3.10**: VM runs 3.10. Use `from __future__ import annotations` for union type syntax (`X | Y`).
 - **SQLite DB**: `precobot.db` at project root. Tables: `price_history`, `user_alerts`, `tracked_products`.
 
@@ -70,32 +71,32 @@ tests/
 
 ```bash
 # SSH
-ssh -i ~/.ssh/oci_yvy ubuntu@137.131.159.91
+ssh -i ~/.ssh/oci_yvy ubuntu@137.131.245.64
 
 # VM paths
 REMOTE_DIR=/home/ubuntu/precosbot
 SERVICE=precosbot.service
 
 # Deploy single file
-scp -i ~/.ssh/oci_yvy <local_file> ubuntu@137.131.159.91:$REMOTE_DIR/<path>
-ssh -i ~/.ssh/oci_yvy ubuntu@137.131.159.91 "sudo systemctl restart precosbot"
+scp -i ~/.ssh/oci_yvy <local_file> ubuntu@137.131.245.64:$REMOTE_DIR/<path>
+ssh -i ~/.ssh/oci_yvy ubuntu@137.131.245.64 "sudo systemctl restart precosbot"
 
 # Deploy multiple files
-scp -i ~/.ssh/oci_yvy bot/cog_monitor.py ubuntu@137.131.159.91:$REMOTE_DIR/bot/
-scp -i ~/.ssh/oci_yvy scrapers/mercadolivre.py ubuntu@137.131.159.91:$REMOTE_DIR/scrapers/
-ssh -i ~/.ssh/oci_yvy ubuntu@137.131.159.91 "sudo systemctl restart precosbot"
+scp -i ~/.ssh/oci_yvy bot/cog_monitor.py ubuntu@137.131.245.64:$REMOTE_DIR/bot/
+scp -i ~/.ssh/oci_yvy scrapers/mercadolivre.py ubuntu@137.131.245.64:$REMOTE_DIR/scrapers/
+ssh -i ~/.ssh/oci_yvy ubuntu@137.131.245.64 "sudo systemctl restart precosbot"
 
 # Full deploy (all files)
 cd e:\Code\Scripts\precosbot
-scp -i ~/.ssh/oci_yvy config.py main.py requirements.txt ubuntu@137.131.159.91:$REMOTE_DIR/
-scp -i ~/.ssh/oci_yvy bot/*.py ubuntu@137.131.159.91:$REMOTE_DIR/bot/
-scp -i ~/.ssh/oci_yvy core/*.py ubuntu@137.131.159.91:$REMOTE_DIR/core/
-scp -i ~/.ssh/oci_yvy db/*.py ubuntu@137.131.159.91:$REMOTE_DIR/db/
-scp -i ~/.ssh/oci_yvy db/repositories/*.py ubuntu@137.131.159.91:$REMOTE_DIR/db/repositories/
-scp -i ~/.ssh/oci_yvy scheduler/*.py ubuntu@137.131.159.91:$REMOTE_DIR/scheduler/
-scp -i ~/.ssh/oci_yvy scrapers/*.py ubuntu@137.131.159.91:$REMOTE_DIR/scrapers/
-scp -i ~/.ssh/oci_yvy utils/*.py ubuntu@137.131.159.91:$REMOTE_DIR/utils/
-ssh -i ~/.ssh/oci_yvy ubuntu@137.131.159.91 "sudo systemctl restart precosbot"
+scp -i ~/.ssh/oci_yvy config.py main.py requirements.txt ubuntu@137.131.245.64:$REMOTE_DIR/
+scp -i ~/.ssh/oci_yvy bot/*.py ubuntu@137.131.245.64:$REMOTE_DIR/bot/
+scp -i ~/.ssh/oci_yvy core/*.py ubuntu@137.131.245.64:$REMOTE_DIR/core/
+scp -i ~/.ssh/oci_yvy db/*.py ubuntu@137.131.245.64:$REMOTE_DIR/db/
+scp -i ~/.ssh/oci_yvy db/repositories/*.py ubuntu@137.131.245.64:$REMOTE_DIR/db/repositories/
+scp -i ~/.ssh/oci_yvy scheduler/*.py ubuntu@137.131.245.64:$REMOTE_DIR/scheduler/
+scp -i ~/.ssh/oci_yvy scrapers/*.py ubuntu@137.131.245.64:$REMOTE_DIR/scrapers/
+scp -i ~/.ssh/oci_yvy utils/*.py ubuntu@137.131.245.64:$REMOTE_DIR/utils/
+ssh -i ~/.ssh/oci_yvy ubuntu@137.131.245.64 "sudo systemctl restart precosbot"
 
 # Logs
 journalctl -u precosbot -f                     # Follow logs

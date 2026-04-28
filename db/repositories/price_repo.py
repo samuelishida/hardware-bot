@@ -109,8 +109,8 @@ async def get_all_latest(product_name: str = None) -> list[PriceRecord]:
                 stock_label=r["stock_label"],
                 url=r["url"],
                 scraped_at=r["scraped_at"],
-                product_name=_row_value(r, "product_name", "AMD Ryzen 5 5700X3D"),
-                search_term=_row_value(r, "search_term", "ryzen-5-5700x3d"),
+                product_name=_row_value(r, "product_name", DEFAULT_PRODUCT),
+                search_term=_row_value(r, "search_term", DEFAULT_SEARCH_TERM),
             )
             for r in rows
         ]
@@ -143,8 +143,8 @@ async def get_price_history(store_id: str, days: int = 30, product_name: str = N
                 stock_label=r["stock_label"],
                 url=r["url"],
                 scraped_at=r["scraped_at"],
-                product_name=_row_value(r, "product_name", "AMD Ryzen 5 5700X3D"),
-                search_term=_row_value(r, "search_term", "ryzen-5-5700x3d"),
+                product_name=_row_value(r, "product_name", DEFAULT_PRODUCT),
+                search_term=_row_value(r, "search_term", DEFAULT_SEARCH_TERM),
             )
             for r in rows
         ]

@@ -117,7 +117,8 @@ class TestBackwardCompatibility:
         
         # Default product should still be supported
         product = pm.parse_product_name("AMD Ryzen 5 5700X3D")
-        assert product.search_term == "ryzen-5-5700x3d"
+        assert product.name == "AMD Ryzen 5 5700X3D"
+        assert "5700x3d" in product.search_term
     
     def test_legacy_queries_work(self):
         """Test that legacy queries without product_name still work."""

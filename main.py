@@ -63,13 +63,10 @@ class PrecoBot(commands.Bot):
             await self.tree.sync()
             logger.info("Slash commands sincronizados globalmente.")
 
-        # Scheduler — usa cron-style (fixed times: :00, :15, :30, :45)
-        # Evita execução imediata no deploy.
         self.scheduler.add_job(
             run_scrape_job,
-            "cron",
-            minute="0",  # A cada 15 min (0, 15, 30, 45)
-            second=5,       # 5 segundos após o minuto Cheio
+            "interval",
+            minutes=SCRAPE_INTERVAL_MINUTES,
             args=[self],
             id="price_scrape",
         )

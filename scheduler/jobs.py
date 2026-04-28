@@ -26,8 +26,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Scraper classifications
-BROWSER_SCRAPERS = [KabumScraper, PichauScraper, TeraScraper, AmazonScraper, MercadoLivreScraper]
-HTTP_SCRAPERS = []
+BROWSER_SCRAPERS = [KabumScraper, PichauScraper, TeraScraper]
+HTTP_SCRAPERS = [AmazonScraper, MercadoLivreScraper]
 
 
 async def run_scrape_job(bot: "discord.Client") -> None:
@@ -98,7 +98,7 @@ async def run_scrape_job(bot: "discord.Client") -> None:
             for tp, tp_results in zip(tracked, all_tp_results):
                 tp_name = tp["product_name"]
                 tp_channel_id = tp["channel_id"]
-                
+
                 # Save all results
                 for result in tp_results:
                     await insert_price(
@@ -110,7 +110,10 @@ async def run_scrape_job(bot: "discord.Client") -> None:
                         product_name=tp_name,
                         search_term=tp["search_term"],
                     )
-                
+
+                # Dispatch user DM alerts for this tracked product
+                await dispatch_user_alerts(bot, active_alerts, tp_results, default_product_name=tp_name)
+
                 # Send summary to channel
                 tp_channel = bot.get_channel(int(tp_channel_id))
                 if tp_channel is not None and tp_results:

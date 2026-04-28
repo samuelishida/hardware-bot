@@ -8,6 +8,12 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.pichau.com.br"
 
+SYSTEM_EXCLUSIONS = [
+    'pc gamer', 'pc gaming', 'computador gamer', 'computador completo',
+    'desktop gamer', 'workstation', 'pc completo',
+    'notebook', 'laptop', 'usado', 'seminovo',
+]
+
 
 def _make_slug(name: str) -> str:
     slug = name.lower()
@@ -57,17 +63,22 @@ class PichauScraper(BaseScraper):
             logger.info("[pichau] Nenhum produto encontrado no SSR.")
             return ScrapeResult(self.store_id, None, False, "Não encontrado", self.search_url)
 
-        search_keywords = self.search_term.replace("-", " ").split()
+        search_keywords = self.search_term.replace("-", " ").lower().split()
+        significant_keywords = [kw for kw in search_keywords if len(kw) >= 2]
+        match_keywords = significant_keywords if significant_keywords else search_keywords
         model_keywords = [kw for kw in search_keywords if any(c.isdigit() for c in kw)]
 
         scored = []
         for name, price, url in products:
             name_lower = name.lower()
+            # Exclude pre-built systems
+            if any(excl in name_lower for excl in SYSTEM_EXCLUSIONS):
+                continue
             if model_keywords and not all(kw in name_lower for kw in model_keywords):
                 continue
-            if not any(kw in name_lower for kw in search_keywords):
+            if match_keywords and not all(kw in name_lower for kw in match_keywords):
                 continue
-            match_count = sum(1 for kw in search_keywords if kw in name_lower)
+            match_count = sum(1 for kw in match_keywords if kw in name_lower)
             scored.append((name, price, url, match_count))
 
         scored.sort(key=lambda x: (-x[3], x[1] if x[1] is not None else float('inf')))
@@ -88,7 +99,6 @@ class PichauScraper(BaseScraper):
     def _parse_ssr(self, html: str) -> list[tuple[str, float | None, str]]:
         products: list[tuple[str, float | None, str]] = []
 
-        script_end = 0
         h2_iter = list(re.finditer(r"<h2[^>]*>([^<]+)</h2>", html))
         for i, m in enumerate(h2_iter):
             name = m.group(1).strip()
@@ -96,17 +106,8 @@ class PichauScraper(BaseScraper):
                 continue
 
             pos = m.end()
-
             next_h2_start = h2_iter[i + 1].start() if i + 1 < len(h2_iter) else pos + 800
             chunk = html[pos:next_h2_start]
-
-            in_script = False
-            for s_match in re.finditer(r"<script[^>]*>.*?</script>", html[:pos], re.DOTALL):
-                if pos < s_match.end() and pos > s_match.start():
-                    in_script = True
-                    break
-            if in_script:
-                continue
 
             vista_prices = re.findall(
                 r'class="[^"]*price_vista[^"]*"[^>]*>\s*R\$\xa0([\d.,]+)', chunk

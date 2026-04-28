@@ -1,5 +1,5 @@
 """
-tests/test_antibot.py — Anti-bot blocking pattern detection.
+tests/test_antibot.py - Anti-bot blocking pattern detection.
 
 Run each scraper with search term "rx 7900 xtx" and report:
 1. Which scrapers succeed/fail

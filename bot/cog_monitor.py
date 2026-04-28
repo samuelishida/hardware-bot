@@ -44,8 +44,8 @@ from scrapers.mercadolivre import MercadoLivreScraper
 
 logger = logging.getLogger(__name__)
 
-BROWSER_SCRAPERS = [KabumScraper, PichauScraper, TeraScraper, AmazonScraper]
-HTTP_SCRAPERS = [MercadoLivreScraper]
+BROWSER_SCRAPERS = [KabumScraper, PichauScraper, TeraScraper]
+HTTP_SCRAPERS = [AmazonScraper, MercadoLivreScraper]
 
 
 class MonitorCog(commands.Cog):
@@ -76,7 +76,7 @@ class MonitorCog(commands.Cog):
         await interaction.response.defer()
         
         # Try database first
-        records = await get_all_latest(product_name=product_name if produto else None)
+        records = await get_all_latest(product_name=product_name)
         
         if not records:
             # Fallback to live scrape
@@ -129,7 +129,22 @@ class MonitorCog(commands.Cog):
             logger.error(f"Falha ao criar mensagem: {e}")
             return
 
-        results = await scrape_product(BROWSER_SCRAPERS, HTTP_SCRAPERS, product.search_term)
+        try:
+            results = await scrape_product(BROWSER_SCRAPERS, HTTP_SCRAPERS, product.search_term)
+        except Exception as e:
+            logger.error(f"[buscar] Falha crítica na varredura: {e}", exc_info=True)
+            try:
+                await msg.edit(
+                    content=None,
+                    embed=discord.Embed(
+                        title="❌ Erro interno",
+                        description="Erro ao iniciar os scrapers. Tente novamente em alguns instantes.",
+                        color=discord.Color.red(),
+                    ),
+                )
+            except Exception:
+                pass
+            return
 
         if not results:
             try:
@@ -196,7 +211,7 @@ class MonitorCog(commands.Cog):
         await interaction.response.send_message(
             f"✅ Começando a monitorar **{product.name}** neste canal!\n"
             f"🔍 Termo de busca: `{product.search_term}`\n"
-            f"⏱️ Varreduras automáticas a cada 15 minutos.",
+            f"⏱️ Varreduras automáticas a cada {SCRAPE_INTERVAL_MINUTES} minutos.",
             ephemeral=True,
         )
 
@@ -259,11 +274,11 @@ class MonitorCog(commands.Cog):
 
         try:
             valor = float(preco.replace("R$", "").replace(".", "").replace(",", ".").strip())
-            if not (100 < valor < 5000):
+            if not (10 < valor < 50000):
                 raise ValueError
         except ValueError:
             await interaction.response.send_message(
-                "❌ Valor inválido. Informe um número em R$, ex: `/alerta 1100`",
+                "❌ Valor inválido. Informe um número em R$ entre 10 e 50.000, ex: `/alerta 1100`",
                 ephemeral=True,
             )
             return
@@ -307,21 +322,26 @@ class MonitorCog(commands.Cog):
         )
 
         if records:
-            store_lines = []
+            by_product: dict = {}
             for r in records:
-                icon = "✅" if r.available else "❌"
-                name = STORE_DISPLAY_NAMES.get(r.store_id, r.store_id.title())
-                if r.price:
-                    price_str = f"R$ {r.price:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                    if r.url and r.available:
-                        store_lines.append(f"{icon} [{name}]({r.url}) — {price_str}")
+                by_product.setdefault(r.product_name, []).append(r)
+
+            for prod_name, prod_records in by_product.items():
+                store_lines = []
+                for r in prod_records:
+                    icon = "✅" if r.available else "❌"
+                    store_display = STORE_DISPLAY_NAMES.get(r.store_id, r.store_id.title())
+                    if r.price:
+                        price_str = f"R$ {r.price:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                        if r.url and r.available:
+                            store_lines.append(f"{icon} [{store_display}]({r.url}) — {price_str}")
+                        else:
+                            store_lines.append(f"{icon} **{store_display}** — {price_str}")
                     else:
-                        store_lines.append(f"{icon} **{name}** — {price_str}")
-                else:
-                    # No price = scraper error/timeout
-                    status_msg = "Timeout" if "timeout" in (r.stock_label or "").lower() else "Não encontrado"
-                    store_lines.append(f"{icon} **{name}** — {status_msg}")
-            embed.add_field(name="🏪 Lojas", value="\n".join(store_lines), inline=False)
+                        status_msg = "Timeout" if "timeout" in (r.stock_label or "").lower() else "Não encontrado"
+                        store_lines.append(f"{icon} **{store_display}** — {status_msg}")
+                embed.add_field(name=f"📦 {prod_name}", value="\n".join(store_lines), inline=False)
+
             last = records[0].scraped_at if records else "nunca"
             embed.add_field(name="🕐 Última varredura", value=last, inline=True)
         else:

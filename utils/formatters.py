@@ -5,6 +5,7 @@ Centralizes all formatting logic used across scrapers, embeds, and commands.
 """
 
 from __future__ import annotations
+import re
 
 
 def format_price_brl(price: float | None) -> str:
@@ -23,9 +24,9 @@ def format_store_name(store_id: str) -> str:
 def normalize_search_term(term: str) -> str:
     """
     Normalize a product search term for URLs.
-    
+
     Examples:
         "RTX 4060 Ti" → "rtx-4060-ti"
-        "iPhone 15 Pro" → "iphone-15-pro"
+        "  iPhone  15  Pro  " → "iphone-15-pro"
     """
-    return term.lower().strip().replace(" ", "-")
+    return re.sub(r'[-\s]+', '-', term.lower().strip())

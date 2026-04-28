@@ -3,7 +3,7 @@ tests/test_product_manager.py — Unit tests for core/product_manager.py.
 """
 
 import pytest
-from core.product_manager import ProductManager, Product
+from core.product_manager import ProductManager, ProductSearch as Product
 
 
 class TestProductManager:
@@ -23,7 +23,7 @@ class TestProductManager:
         """Test parsing a complex product name."""
         product = self.pm.parse_product_name("AMD Ryzen 5 5700X3D")
         assert product.name == "AMD Ryzen 5 5700X3D"
-        assert product.search_term == "ryzen-5-5700x3d"
+        assert product.search_term == "amd-ryzen-5-5700x3d"
     
     def test_parse_product_name_with_special_chars(self):
         """Test parsing product name with special characters."""

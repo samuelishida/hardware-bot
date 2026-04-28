@@ -109,15 +109,17 @@ def make_prices_table_embed(
     for r in records:
         status = "✅ Em estoque" if r.available else "❌ Indisponível"
         highlight = "⭐ " if (r.price is not None and r.price == lowest_price) else ""
-        
-        # Add hyperlink to store name if URL available
         store_name = format_store_name(r.store_id)
+        price_line = f"{highlight}**{format_price_brl(r.price)}** · {status}"
+
         if r.url and r.available:
-            store_name = f"[{store_name}]({r.url})"
-        
+            value = f"{price_line}\n[Ver produto →]({r.url})"
+        else:
+            value = price_line
+
         embed.add_field(
             name=store_name,
-            value=f"{highlight}**{format_price_brl(r.price)}** · {status}",
+            value=value,
             inline=True,
         )
     
@@ -165,20 +167,16 @@ def make_search_results_embed(
         store = format_store_name(r.store_id)
         price = format_price_brl(r.price)
         status = "✅" if r.available else "❌"
-        
-        # Build value with price and optional stock label
+
         value_parts = [price]
         if r.stock_label:
             value_parts.append(r.stock_label)
-        value = "\n".join(value_parts)
-        
-        # Add hyperlink to store name if URL available
-        field_name = f"{status} {store}"
         if r.url:
-            field_name = f"{status} [{store}]({r.url})"
-        
+            value_parts.append(f"[Ver produto →]({r.url})")
+        value = "\n".join(value_parts)
+
         embed.add_field(
-            name=field_name,
+            name=f"{status} {store}",
             value=value,
             inline=True,
         )

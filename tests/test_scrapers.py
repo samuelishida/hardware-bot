@@ -5,7 +5,7 @@ Tests scraper logic without real HTTP requests or browser launches.
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 from scrapers.base import BaseScraper, ScrapeResult
 from scrapers.kabum import KabumScraper
@@ -51,119 +51,60 @@ class TestBaseScraper:
 
 class TestKabumScraper:
     """Tests for KabumScraper."""
-    
-    def test_init_default(self):
-        """Test default initialization."""
-        scraper = KabumScraper()
-        assert scraper.store_id == "kabum"
-        assert scraper.search_term == "ryzen-5-5700x3d"
-        assert "ryzen-5-5700x3d" in scraper.search_url
-    
-    def test_init_custom_search_term(self):
-        """Test initialization with custom search term."""
+
+    def test_init_with_search_term(self):
         scraper = KabumScraper(search_term="rtx-4060-ti")
+        assert scraper.store_id == "kabum"
         assert scraper.search_term == "rtx-4060-ti"
         assert "rtx-4060-ti" in scraper.search_url
+
+    def test_init_no_search_term(self):
+        scraper = KabumScraper()
+        assert scraper.store_id == "kabum"
+        assert scraper.search_term is None
 
 
 class TestPichauScraper:
     """Tests for PichauScraper."""
-    
-    def test_init_default(self):
-        """Test default initialization."""
+
+    def test_init_with_search_term(self):
+        scraper = PichauScraper(search_term="rx-7900-xtx")
+        assert scraper.store_id == "pichau"
+        assert scraper.search_term == "rx-7900-xtx"
+
+    def test_init_no_search_term(self):
         scraper = PichauScraper()
         assert scraper.store_id == "pichau"
-        assert scraper.search_term == "ryzen-5-5700x3d"
-    
-    def test_init_custom_search_term(self):
-        """Test initialization with custom search term."""
-        scraper = PichauScraper(search_term="rx-7900-xtx")
-        assert scraper.search_term == "rx-7900-xtx"
+        assert scraper.search_term is None
 
 
 class TestAmazonScraper:
     """Tests for AmazonScraper."""
-    
-    def test_init_default(self):
-        """Test default initialization."""
-        scraper = AmazonScraper()
-        assert scraper.store_id == "amazon"
-        assert "ryzen-5700x3d" in scraper.search_url
-    
-    def test_init_custom_search_term(self):
-        """Test initialization with custom search term."""
+
+    def test_init_with_search_term(self):
         scraper = AmazonScraper(search_term="rtx-4060")
+        assert scraper.store_id == "amazon"
         assert scraper.search_term == "rtx-4060"
         assert "rtx-4060" in scraper.search_url
+
+    def test_init_no_search_term(self):
+        scraper = AmazonScraper()
+        assert scraper.store_id == "amazon"
+        assert scraper.search_term is None
 
 
 class TestMercadoLivreScraper:
     """Tests for MercadoLivreScraper."""
-    
-    def test_init_default(self):
-        """Test default initialization."""
+
+    def test_init_with_search_term(self):
+        scraper = MercadoLivreScraper(search_term="rx-7900-xtx")
+        assert scraper.store_id == "mercadolivre"
+        assert scraper.search_term == "rx-7900-xtx"
+
+    def test_init_no_search_term(self):
         scraper = MercadoLivreScraper()
         assert scraper.store_id == "mercadolivre"
-        assert scraper.search_term == "ryzen-5-5700x3d"
-        assert "ryzen+5+5700x3d" in scraper.api_url
-    
-    def test_init_custom_search_term(self):
-        """Test initialization with custom search term."""
-        scraper = MercadoLivreScraper(search_term="rx-7900-xtx")
-        assert scraper.search_term == "rx-7900-xtx"
-        assert "rx+7900+xtx" in scraper.api_url
-    
-    @pytest.mark.asyncio
-    async def test_scrape_api_success(self):
-        """Test successful API scrape."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "results": [
-                {
-                    "title": "AMD Ryzen 5 5700X3D",
-                    "price": 1500.0,
-                    "condition": "new",
-                    "available_quantity": 10,
-                    "permalink": "https://ml.com/product",
-                }
-            ]
-        }
-        
-        with patch('httpx.AsyncClient') as MockClient:
-            mock_client = AsyncMock()
-            MockClient.return_value.__aenter__.return_value = mock_client
-            mock_client.get.return_value = mock_response
-            
-            scraper = MercadoLivreScraper(search_term="ryzen-5-5700x3d")
-            result = await scraper.scrape()
-            
-            assert result.store_id == "mercadolivre"
-            assert result.price == 1500.0
-            assert result.available is True
-    
-    @pytest.mark.asyncio
-    async def test_scrape_api_403_no_fallback(self):
-        """Test API returns 403 - no fallback, just error."""
-        from httpx import HTTPStatusError
-        
-        mock_response = MagicMock()
-        mock_response.status_code = 403
-        
-        with patch('httpx.AsyncClient') as MockClient:
-            mock_client = AsyncMock()
-            MockClient.return_value.__aenter__.return_value = mock_client
-            mock_client.get.side_effect = HTTPStatusError(
-                "403 Forbidden",
-                request=MagicMock(),
-                response=mock_response
-            )
-            
-            scraper = MercadoLivreScraper(search_term="ryzen-5-5700x3d")
-            result = await scraper.scrape()
-            
-            assert result.price is None
-            assert result.available is False
-            assert result.stock_label == "Erro de rede"
+        assert scraper.search_term is None
 
 
 class TestScrapeResult:

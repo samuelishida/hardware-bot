@@ -7,7 +7,9 @@ Note: These tests use an in-memory SQLite database for isolation.
 import pytest
 import pytest_asyncio
 import aiosqlite
+from contextlib import asynccontextmanager
 from typing import AsyncGenerator
+from unittest.mock import patch
 
 from db.repositories.price_repo import (
     insert_price,
@@ -32,15 +34,13 @@ from db.repositories.tracking_repo import (
 )
 
 
-# Test database fixture
 @pytest_asyncio.fixture
 async def test_db() -> AsyncGenerator[aiosqlite.Connection, None]:
-    """Create an in-memory test database."""
-    db = await aiosqlite.connect(":memory:")
-    db.row_factory = aiosqlite.Row
-    
-    # Create tables
-    await db.execute("""
+    """Create an in-memory test database, patched into all repository modules."""
+    conn = await aiosqlite.connect(":memory:")
+    conn.row_factory = aiosqlite.Row
+
+    await conn.execute("""
         CREATE TABLE price_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             store_id TEXT NOT NULL,
@@ -53,8 +53,8 @@ async def test_db() -> AsyncGenerator[aiosqlite.Connection, None]:
             scraped_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    
-    await db.execute("""
+
+    await conn.execute("""
         CREATE TABLE user_alerts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             discord_user TEXT NOT NULL,
@@ -65,8 +65,8 @@ async def test_db() -> AsyncGenerator[aiosqlite.Connection, None]:
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    
-    await db.execute("""
+
+    await conn.execute("""
         CREATE TABLE tracked_products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             channel_id TEXT NOT NULL,
@@ -76,23 +76,26 @@ async def test_db() -> AsyncGenerator[aiosqlite.Connection, None]:
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    
-    await db.commit()
-    
-    # Patch get_db to use test database
-    import db.database
-    original_get_db = db.database.get_db
-    
-    async def test_get_db():
-        return db
-    
-    db.database.get_db = test_get_db
-    
-    yield db
-    
-    # Restore original get_db
-    db.database.get_db = original_get_db
-    await db.close()
+
+    await conn.commit()
+
+    @asynccontextmanager
+    async def mock_get_db():
+        yield conn
+
+    patches = [
+        patch('db.repositories.price_repo.get_db', mock_get_db),
+        patch('db.repositories.alert_repo.get_db', mock_get_db),
+        patch('db.repositories.tracking_repo.get_db', mock_get_db),
+    ]
+    for p in patches:
+        p.start()
+
+    yield conn
+
+    for p in patches:
+        p.stop()
+    await conn.close()
 
 
 class TestPriceRepository:
