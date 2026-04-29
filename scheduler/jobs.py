@@ -14,7 +14,7 @@ from scrapers.kabum import KabumScraper
 from scrapers.pichau import PichauScraper
 from scrapers.terabyte import TeraScraper
 from scrapers.amazon import AmazonScraper
-from scrapers.mercadolivre import MercadoLivreScraper
+from scrapers.mercadolivre import MercadoLivreScraper, MercadoLivreUsadoScraper
 from db.repositories import get_latest_by_store, insert_price, get_active_alerts, get_all_tracked_products
 from db.database import acquire_lock, release_lock
 from scheduler.executor import scrape_product
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 # Scraper classifications
 BROWSER_SCRAPERS = [KabumScraper, PichauScraper, TeraScraper]
-HTTP_SCRAPERS = [AmazonScraper, MercadoLivreScraper]
+HTTP_SCRAPERS = [AmazonScraper, MercadoLivreScraper, MercadoLivreUsadoScraper]
 
 
 async def run_scrape_job(bot: "discord.Client") -> None:

@@ -23,28 +23,31 @@ PRICE_DROP_THRESHOLD_PCT: float = float(os.getenv("PRICE_DROP_THRESHOLD_PCT", "5
 # ── URLs de busca por loja (templates com {query}) ────────────────────────────
 # Use {query} como placeholder para o termo de busca normalizado
 STORE_URL_TEMPLATES: dict[str, str] = {
-    "kabum":        "https://www.kabum.com.br/busca/{query}",
-    "pichau":       "https://www.pichau.com.br/search?q={query}",
-    "terabyte":     "https://www.terabyteshop.com.br/busca?str={query}",
-    "mercadolivre": "https://lista.mercadolivre.com.br/{query}",
-    "amazon":       "https://www.amazon.com.br/s?k={query}",
+    "kabum":              "https://www.kabum.com.br/busca/{query}",
+    "pichau":             "https://www.pichau.com.br/search?q={query}",
+    "terabyte":           "https://www.terabyteshop.com.br/busca?str={query}",
+    "mercadolivre":       "https://lista.mercadolivre.com.br/{query}",
+    "mercadolivre_usado": "https://lista.mercadolivre.com.br/{query}_CONDICION_2230581",
+    "amazon":             "https://www.amazon.com.br/s?k={query}",
 }
 
 # ── Cores dos embeds por loja (hex) ───────────────────────────────────────────
 STORE_COLORS: dict[str, int] = {
-    "kabum":        0xF26E1F,
-    "pichau":       0x004AAD,
-    "terabyte":     0xE30613,
-    "mercadolivre": 0xFFE600,
-    "amazon":       0xFF9900,
+    "kabum":              0xF26E1F,
+    "pichau":             0x004AAD,
+    "terabyte":           0xE30613,
+    "mercadolivre":       0xFFE600,
+    "mercadolivre_usado": 0xC8A800,
+    "amazon":             0xFF9900,
 }
 
 STORE_DISPLAY_NAMES: dict[str, str] = {
-    "kabum":        "KaBuM!",
-    "pichau":       "Pichau",
-    "terabyte":     "Terabyte Shop",
-    "mercadolivre": "Mercado Livre",
-    "amazon":       "Amazon BR",
+    "kabum":              "KaBuM!",
+    "pichau":             "Pichau",
+    "terabyte":           "Terabyte Shop",
+    "mercadolivre":       "Mercado Livre",
+    "mercadolivre_usado": "Mercado Livre (Usado)",
+    "amazon":             "Amazon BR",
 }
 
 # ── Produto padrão (backward compatibility) ──────────────────────────────────

@@ -44,6 +44,12 @@ window.navigator.permissions.query = (p) => (
 
 class MercadoLivreScraper(BaseScraper):
     store_id = "mercadolivre"
+    _url_suffix = ""
+    _system_excl = [
+        'pc gamer', 'pc gaming', 'computador gamer', 'computador completo',
+        'desktop gamer', 'workstation', 'pc completo', 'notebook', 'laptop',
+        'usado', 'seminovo',
+    ]
 
     def __init__(self, browser=None, search_term: str = None):
         super().__init__(browser)
@@ -198,7 +204,7 @@ class MercadoLivreScraper(BaseScraper):
 
             await page.route("**/*", _route)
 
-            search_url = f"https://lista.mercadolivre.com.br/{self.search_term}"
+            search_url = f"https://lista.mercadolivre.com.br/{self.search_term}{self._url_suffix}"
             await page.goto(search_url, wait_until="commit", timeout=60_000)
             await page.wait_for_timeout(random.randint(3000, 5000))
 
@@ -240,12 +246,12 @@ class MercadoLivreScraper(BaseScraper):
             await self._save_cookies(context)
 
             products = await page.evaluate(
-                """(searchTerm) => {
+                """([searchTerm, systemExcl]) => {
                 const keywords = searchTerm.replace(/-/g, ' ').toLowerCase().split(' ').filter(Boolean);
                 const sigKws = keywords.filter(kw => kw.length >= 2);
                 const matchKws = sigKws.length > 0 ? sigKws : keywords;
                 const modelKws = keywords.filter(kw => /[0-9]/.test(kw));
-                const SYSTEM_EXCL = ['pc gamer','pc gaming','computador gamer','computador completo','desktop gamer','workstation','pc completo','notebook','laptop','usado','seminovo'];
+                const SYSTEM_EXCL = systemExcl;
 
                 const selectors = [
                     'li.ui-search-layout__item',
@@ -322,7 +328,7 @@ class MercadoLivreScraper(BaseScraper):
                 results.sort((a, b) => b.matchCount - a.matchCount || a.price - b.price);
                 return results;
             }""",
-                self.search_term,
+                [self.search_term, self._system_excl],
             )
 
             if not products:
@@ -373,3 +379,12 @@ class MercadoLivreScraper(BaseScraper):
                 await page.wait_for_timeout(random.randint(300, 700))
         except Exception:
             pass
+
+
+class MercadoLivreUsadoScraper(MercadoLivreScraper):
+    store_id = "mercadolivre_usado"
+    _url_suffix = "_CONDICION_2230581"
+    _system_excl = [
+        'pc gamer', 'pc gaming', 'computador gamer', 'computador completo',
+        'desktop gamer', 'workstation', 'pc completo', 'notebook', 'laptop',
+    ]
