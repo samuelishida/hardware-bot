@@ -10,6 +10,8 @@ from scrapers.pichau import PichauScraper
 from scrapers.terabyte import TeraScraper
 from scrapers.amazon import AmazonScraper
 from scrapers.mercadolivre import MercadoLivreScraper, MercadoLivreUsadoScraper
+from scrapers.olx import OLXScraper
+from scrapers.enjoei import EnjoeiScraper
 
 # All scrapers that need a shared Playwright browser instance
 BROWSER_SCRAPERS = [
@@ -19,6 +21,8 @@ BROWSER_SCRAPERS = [
     AmazonScraper,
     MercadoLivreScraper,
     MercadoLivreUsadoScraper,
+    OLXScraper,
+    EnjoeiScraper,
 ]
 
 # Scrapers that use HTTP directly (none currently)

@@ -50,3 +50,4 @@ ml_cookies.json
 deploy_tmp/
 *.zip
 precobot.backup*
+*.tar.gz

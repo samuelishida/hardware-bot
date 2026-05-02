@@ -21,6 +21,8 @@ STORE_URL_TEMPLATES: dict[str, str] = {
     "mercadolivre":       "https://lista.mercadolivre.com.br/{query}",
     "mercadolivre_usado": "https://lista.mercadolivre.com.br/{query}_Condicao_2230581",
     "amazon":             "https://www.amazon.com.br/s?k={query}",
+    "olx":                "https://www.olx.com.br/brasil?q={query}&sf=1",
+    "enjoei":             "https://www.enjoei.com.br/busca?term={query}",
 }
 
 STORE_DISPLAY_NAMES: dict[str, str] = {
@@ -30,6 +32,8 @@ STORE_DISPLAY_NAMES: dict[str, str] = {
     "mercadolivre":       "Mercado Livre",
     "mercadolivre_usado": "Mercado Livre (Usado)",
     "amazon":             "Amazon BR",
+    "olx":                "OLX",
+    "enjoei":             "Enjoei",
 }
 
 STORE_COLORS: dict[str, int] = {
@@ -39,6 +43,8 @@ STORE_COLORS: dict[str, int] = {
     "mercadolivre":       0xFFE600,
     "mercadolivre_usado": 0xC8A800,
     "amazon":             0xFF9900,
+    "olx":                0x6E0AD6,
+    "enjoei":             0xFF3366,
 }
 
 ALL_STORE_IDS: list[str] = list(STORE_URL_TEMPLATES.keys())

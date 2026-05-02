@@ -21,6 +21,7 @@ from db.repositories import (
     get_historical_min,
 )
 from config import STORE_URL_TEMPLATES
+from utils.history_logger import log_scrape
 
 
 async def scrape(product: str) -> list[ScrapeResult]:
@@ -30,7 +31,7 @@ async def scrape(product: str) -> list[ScrapeResult]:
 
 
 async def scrape_and_store(product: str) -> list[ScrapeResult]:
-    """Live scrape across all stores and persist results to DB."""
+    """Live scrape across all stores and persist results to DB + HISTORY.md."""
     ps = ProductManager.parse_product_name(product)
     results = await scrape_product(BROWSER_SCRAPERS, HTTP_SCRAPERS, ps.search_term)
     for r in results:
@@ -42,6 +43,13 @@ async def scrape_and_store(product: str) -> list[ScrapeResult]:
             url=r.url,
             product_name=ps.name,
             search_term=ps.search_term,
+        )
+        log_scrape(
+            store_id=r.store_id,
+            product=ps.name,
+            price=r.price,
+            available=r.available,
+            url=r.url,
         )
     return results
 
