@@ -1,7 +1,7 @@
 # Deploy PreçoBot to OCI VM
 # Usage: .\deploy-to-oci.ps1
 
-$VM_IP = "137.131.245.64"
+$VM_IP = "137.131.159.91"
 $SSH_KEY = "$env:USERPROFILE\.ssh\oci_yvy"
 $REMOTE_DIR = "/home/ubuntu/precosbot"
 
@@ -9,7 +9,7 @@ Write-Host "=== Deploying PreçoBot to OCI VM ($VM_IP) ===" -ForegroundColor Cya
 
 # Create deployment package (exclude tests, cache, db)
 Write-Host "`n1. Creating deployment package..." -ForegroundColor Yellow
-$EXCLUDE = @("*.pyc", "__pycache__", ".pytest_cache", "*.db", "test_*.py", "TEST_*.md", "FIXES_*.md")
+$EXCLUDE = @("*.pyc", "__pycache__", ".pytest_cache", "*.db", "test_*.py", "TEST_*.md", "FIXES_*.md", "deploy_tmp", "precosbot_deploy.zip")
 $FILES = Get-ChildItem -Path "." -Exclude $EXCLUDE | Where-Object { $_.Name -notmatch "^test_" -and $_.Name -notmatch "^\." }
 
 # Create temp directory

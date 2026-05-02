@@ -2,53 +2,71 @@
 db/database.py — SQLite assíncrono com aiosqlite.
 
 Tabelas:
-  price_history  — um registro por varredura por loja
-  user_alerts    — alertas de preço configurados por usuário no Discord
+  price_history    — um registro por varredura por loja; campos de display em data JSON
+  user_alerts      — alertas de preço configurados por usuário no Discord
   tracked_products — produtos monitorados por canal
-  scheduler_locks — prevenção de jobs concorrentes
+  scheduler_locks  — prevenção de jobs concorrentes
 
-Usa aiosqlite (async) para operações não-bloqueantes.
+performance notes:
+  - WAL + synchronous=NORMAL: safe for single-process, ~3x faster writes
+  - cache_size -2000: 2MB page cache per connection
+  - mmap_size 16MB: faster reads on Linux via memory-mapped I/O
+  - temp_store MEMORY: avoid temp file I/O for sorts/indexes
+  - busy_timeout 5000ms: retry on lock instead of failing immediately
 """
 
+import logging
 import aiosqlite
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
+
 DB_PATH = Path(__file__).parent.parent / "precobot.db"
 
 
+async def _configure(db: aiosqlite.Connection) -> None:
+    await db.executescript("""
+        PRAGMA journal_mode = WAL;
+        PRAGMA synchronous = NORMAL;
+        PRAGMA cache_size = -2000;
+        PRAGMA mmap_size = 16777216;
+        PRAGMA temp_store = MEMORY;
+        PRAGMA busy_timeout = 5000;
+    """)
+
+
 async def init_db() -> None:
-    """Cria as tabelas se não existirem. Chamar uma vez no startup."""
+    """Create tables if they don't exist and auto-migrate legacy schema."""
     async with aiosqlite.connect(DB_PATH) as db:
+        await _configure(db)
         await db.executescript("""
             CREATE TABLE IF NOT EXISTS price_history (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                store_id    TEXT    NOT NULL,          -- ex: "kabum"
-                product_name TEXT   NOT NULL DEFAULT 'AMD Ryzen 5 5700X3D',  -- legacy default, see config.DEFAULT_PRODUCT
-                search_term TEXT    NOT NULL DEFAULT 'ryzen-5-5700x3d',  -- legacy default, see config.DEFAULT_SEARCH_TERM
-                price       REAL,                      -- NULL = indisponível
-                available   INTEGER NOT NULL DEFAULT 0, -- 0 ou 1
-                stock_label TEXT,                      -- "em estoque", "poucos", etc.
-                url         TEXT,
-                scraped_at  TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                store_id     TEXT    NOT NULL,
+                product_name TEXT    NOT NULL DEFAULT 'AMD Ryzen 5 5700X3D',
+                price        REAL,
+                available    INTEGER NOT NULL DEFAULT 0,
+                scraped_at   TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+                data         TEXT    NOT NULL DEFAULT '{}'
             );
 
             CREATE INDEX IF NOT EXISTS idx_ph_store_time
                 ON price_history(store_id, scraped_at DESC);
-            
+
             CREATE INDEX IF NOT EXISTS idx_ph_product
                 ON price_history(product_name, scraped_at DESC);
 
             CREATE TABLE IF NOT EXISTS user_alerts (
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                discord_user  TEXT    NOT NULL,   -- user_id como string
-                product_name  TEXT    NOT NULL DEFAULT 'AMD Ryzen 5 5700X3D',  -- legacy default, see config.DEFAULT_PRODUCT
-                search_term   TEXT    NOT NULL DEFAULT 'ryzen-5-5700x3d',  -- legacy default, see config.DEFAULT_SEARCH_TERM
-                target_price  REAL    NOT NULL,   -- dispara quando preço <= este valor
+                discord_user  TEXT    NOT NULL,
+                product_name  TEXT    NOT NULL DEFAULT 'AMD Ryzen 5 5700X3D',
+                search_term   TEXT    NOT NULL DEFAULT 'ryzen-5-5700x3d',
+                target_price  REAL    NOT NULL,
                 active        INTEGER NOT NULL DEFAULT 1,
                 created_at    TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
             );
-            
+
             CREATE TABLE IF NOT EXISTS tracked_products (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 channel_id      TEXT    NOT NULL,
@@ -57,54 +75,97 @@ async def init_db() -> None:
                 active          INTEGER NOT NULL DEFAULT 1,
                 created_at      TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
             );
-            
-            CREATE INDEX IF NOT EXISTS idx_tp_channel 
+
+            CREATE INDEX IF NOT EXISTS idx_tp_channel
                 ON tracked_products(channel_id, active);
-            
-            CREATE TABLE IF NOT EXISTS scheduler_locks (
-                id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                job_name      TEXT NOT NULL UNIQUE,
-                locked_at    TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-                expires_at   TEXT NOT NULL
-            );
+
         """)
         await db.commit()
+        await _auto_migrate(db)
+
+
+async def _auto_migrate(db: aiosqlite.Connection) -> None:
+    """Detect legacy flat schema and migrate to JSON data column."""
+    rows = await db.execute_fetchall("PRAGMA table_info(price_history)")
+    col_names = {row[1] for row in rows}
+    if "stock_label" in col_names or "url" in col_names:
+        logger.warning("Legacy price_history schema detected — migrating to JSON data column")
+        await _migrate_price_history(db)
+
+
+async def _migrate_price_history(db: aiosqlite.Connection) -> None:
+    """Migrate price_history: pack stock_label, url, search_term into JSON data column."""
+    await db.execute("DROP TABLE IF EXISTS price_history_new")
+    await db.execute("""
+        CREATE TABLE price_history_new (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            store_id     TEXT    NOT NULL,
+            product_name TEXT    NOT NULL DEFAULT 'AMD Ryzen 5 5700X3D',
+            price        REAL,
+            available    INTEGER NOT NULL DEFAULT 0,
+            scraped_at   TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+            data         TEXT    NOT NULL DEFAULT '{}'
+        )
+    """)
+    await db.execute("""
+        INSERT INTO price_history_new (id, store_id, product_name, price, available, scraped_at, data)
+        SELECT
+            id, store_id, product_name, price, available, scraped_at,
+            json_object(
+                'search_term', COALESCE(search_term, 'ryzen-5-5700x3d'),
+                'stock_label', stock_label,
+                'url',         url
+            )
+        FROM price_history
+    """)
+    await db.execute("DROP TABLE price_history")
+    await db.execute("ALTER TABLE price_history_new RENAME TO price_history")
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_ph_store_time ON price_history(store_id, scraped_at DESC)")
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_ph_product ON price_history(product_name, scraped_at DESC)")
+    await db.commit()
+    logger.info("Migration complete.")
 
 
 @asynccontextmanager
 async def get_db():
-    """Context manager para conexão com o banco."""
+    """Async context manager for a configured DB connection."""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
+        await _configure(db)
         yield db
 
 
-async def acquire_lock(job_name: str, ttl_minutes: int = 10) -> bool:
-    """
-    Try to acquire a lock for a job.
-    
-    Returns True if lock acquired, False if already locked or expired.
-    Lock auto-expires after ttl_minutes.
-    """
-    async with aiosqlite.connect(DB_PATH) as db:
-        # Delete expired locks (both stored and compared in localtime)
-        await db.execute(
-            "DELETE FROM scheduler_locks WHERE expires_at < datetime('now', 'localtime')"
-        )
+async def get_db_stats() -> dict:
+    """Return price cache statistics and DB file size."""
+    async with get_db() as db:
+        rows = await db.execute_fetchall("""
+            SELECT
+                COUNT(*) AS total_rows,
+                COUNT(DISTINCT product_name) AS products,
+                MIN(scraped_at) AS oldest,
+                MAX(scraped_at) AS newest
+            FROM price_history
+        """)
+        r = rows[0]
+    size_bytes = DB_PATH.stat().st_size if DB_PATH.exists() else 0
+    return {
+        "total_rows": r["total_rows"] or 0,
+        "products": r["products"] or 0,
+        "oldest": r["oldest"],
+        "newest": r["newest"],
+        "db_size_kb": size_bytes // 1024,
+    }
 
-        # Try to insert new lock (expires_at stored as localtime)
+
+async def purge_old_history(days: int = 60) -> int:
+    """Delete price_history records older than N days. Returns rows deleted."""
+    async with get_db() as db:
         cursor = await db.execute(
-            """INSERT OR IGNORE INTO scheduler_locks (job_name, expires_at)
-               VALUES (?, datetime('now', 'localtime', '+' || ? || ' minutes'))""",
-            (job_name, ttl_minutes)
+            "DELETE FROM price_history WHERE scraped_at < datetime('now', ?, 'localtime')",
+            (f"-{days} days",),
         )
         await db.commit()
-        
-        return cursor.lastrowid is not None
-
-
-async def release_lock(job_name: str) -> None:
-    """Release a job lock."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("DELETE FROM scheduler_locks WHERE job_name = ?", (job_name,))
-        await db.commit()
+        deleted = cursor.rowcount
+        if deleted:
+            logger.info(f"Purged {deleted} price_history rows older than {days} days.")
+        return deleted

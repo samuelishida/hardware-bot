@@ -36,65 +36,66 @@ class PichauScraper(BaseScraper):
     async def scrape(self) -> ScrapeResult:
         page = await self._new_page()
         try:
-            response = await page.goto(
-                self.search_url, wait_until="commit", timeout=30_000
-            )
-            if response is None:
-                return ScrapeResult(
-                    self.store_id, None, False, "Sem resposta", self.search_url
+            try:
+                response = await page.goto(
+                    self.search_url, wait_until="commit", timeout=30_000
                 )
-            html = await response.text()
-        except Exception as e:
-            logger.warning(f"[pichau] Goto failed: {e}")
-            return ScrapeResult(self.store_id, None, False, "Timeout", self.search_url)
+                if response is None:
+                    return ScrapeResult(
+                        self.store_id, None, False, "Sem resposta", self.search_url
+                    )
+                html = await response.text()
+            except Exception as e:
+                logger.warning(f"[pichau] Goto failed: {e}")
+                return ScrapeResult(self.store_id, None, False, "Timeout", self.search_url)
+
+            if "just a moment" in html[:2000].lower():
+                logger.warning("[pichau] Cloudflare challenge detected.")
+                return ScrapeResult(self.store_id, None, False, "Cloudflare", self.search_url)
+
+            if len(html) < 5000:
+                logger.warning(f"[pichau] Page too small ({len(html)} chars).")
+                return ScrapeResult(self.store_id, None, False, "Sem conteúdo", self.search_url)
+
+            products = self._parse_ssr(html)
+            if not products:
+                logger.info("[pichau] Nenhum produto encontrado no SSR.")
+                return ScrapeResult(self.store_id, None, False, "Não encontrado", self.search_url)
+
+            search_keywords = self.search_term.replace("-", " ").lower().split()
+            significant_keywords = [kw for kw in search_keywords if len(kw) >= 2]
+            match_keywords = significant_keywords if significant_keywords else search_keywords
+            model_keywords = [kw for kw in search_keywords if any(c.isdigit() for c in kw)]
+
+            scored = []
+            for name, price, url in products:
+                name_lower = name.lower()
+                # Exclude pre-built systems
+                if any(excl in name_lower for excl in SYSTEM_EXCLUSIONS):
+                    continue
+                if model_keywords and not all(kw in name_lower for kw in model_keywords):
+                    continue
+                if match_keywords and not all(kw in name_lower for kw in match_keywords):
+                    continue
+                match_count = sum(1 for kw in match_keywords if kw in name_lower)
+                scored.append((name, price, url, match_count))
+
+            scored.sort(key=lambda x: (-x[3], x[1] if x[1] is not None else float('inf')))
+
+            for name, price, url, _ in scored:
+                available = "esgotado" not in name.lower() and price is not None
+                if available:
+                    return ScrapeResult(self.store_id, price, True, "Em estoque", url)
+
+            if scored:
+                name, price, url, _ = scored[0]
+                available = "esgotado" not in name.lower() and price is not None
+                return ScrapeResult(self.store_id, price, available, "Em estoque" if available else "Esgotado", url)
+
+            logger.info("[pichau] Produto não encontrado após filtro.")
+            return ScrapeResult(self.store_id, None, False, "Não encontrado", self.search_url)
         finally:
             await page.context.close()
-
-        if "just a moment" in html[:2000].lower():
-            logger.warning("[pichau] Cloudflare challenge detected.")
-            return ScrapeResult(self.store_id, None, False, "Cloudflare", self.search_url)
-
-        if len(html) < 5000:
-            logger.warning(f"[pichau] Page too small ({len(html)} chars).")
-            return ScrapeResult(self.store_id, None, False, "Sem conteúdo", self.search_url)
-
-        products = self._parse_ssr(html)
-        if not products:
-            logger.info("[pichau] Nenhum produto encontrado no SSR.")
-            return ScrapeResult(self.store_id, None, False, "Não encontrado", self.search_url)
-
-        search_keywords = self.search_term.replace("-", " ").lower().split()
-        significant_keywords = [kw for kw in search_keywords if len(kw) >= 2]
-        match_keywords = significant_keywords if significant_keywords else search_keywords
-        model_keywords = [kw for kw in search_keywords if any(c.isdigit() for c in kw)]
-
-        scored = []
-        for name, price, url in products:
-            name_lower = name.lower()
-            # Exclude pre-built systems
-            if any(excl in name_lower for excl in SYSTEM_EXCLUSIONS):
-                continue
-            if model_keywords and not all(kw in name_lower for kw in model_keywords):
-                continue
-            if match_keywords and not all(kw in name_lower for kw in match_keywords):
-                continue
-            match_count = sum(1 for kw in match_keywords if kw in name_lower)
-            scored.append((name, price, url, match_count))
-
-        scored.sort(key=lambda x: (-x[3], x[1] if x[1] is not None else float('inf')))
-
-        for name, price, url, _ in scored:
-            available = "esgotado" not in name.lower() and price is not None
-            if available:
-                return ScrapeResult(self.store_id, price, True, "Em estoque", url)
-
-        if scored:
-            name, price, url, _ = scored[0]
-            available = "esgotado" not in name.lower() and price is not None
-            return ScrapeResult(self.store_id, price, available, "Em estoque" if available else "Esgotado", url)
-
-        logger.info("[pichau] Produto não encontrado após filtro.")
-        return ScrapeResult(self.store_id, None, False, "Não encontrado", self.search_url)
 
     def _parse_ssr(self, html: str) -> list[tuple[str, float | None, str]]:
         products: list[tuple[str, float | None, str]] = []

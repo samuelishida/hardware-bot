@@ -47,3 +47,6 @@ desktop.ini
 !.env.example
 ml_cookies.json
 .claude/
+deploy_tmp/
+*.zip
+precobot.backup*

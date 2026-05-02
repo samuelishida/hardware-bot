@@ -11,7 +11,6 @@ logger = logging.getLogger(__name__)
 
 COOKIE_FILE = Path(__file__).parent.parent / "ml_cookies.json"
 
-# Extra ML-specific stealth patches applied on top of base STEALTH_SCRIPT
 _ML_EXTRA_STEALTH = """
 Object.defineProperty(screen, 'width',  { get: () => 1920 });
 Object.defineProperty(screen, 'height', { get: () => 1080 });
@@ -41,6 +40,116 @@ window.navigator.permissions.query = (p) => (
 );
 """
 
+_EVAL_JS = """([searchTerm, systemExcl]) => {
+    const keywords = searchTerm.replace(/-/g, ' ').toLowerCase().split(' ').filter(Boolean);
+    const sigKws = keywords.filter(kw => kw.length >= 2);
+    const matchKws = sigKws.length > 0 ? sigKws : keywords;
+    const modelKws = keywords.filter(kw => /[0-9]/.test(kw));
+    const SYSTEM_EXCL = systemExcl;
+
+    const selectors = [
+        'li.ui-search-layout__item',
+        'div.poly-card',
+        'div.ui-search-result__content',
+        'div.andes-card',
+        'article',
+    ];
+
+    let cards = [];
+    for (const sel of selectors) {
+        const found = document.querySelectorAll(sel);
+        if (found.length >= 3) { cards = Array.from(found); break; }
+    }
+
+    const results = [];
+    for (const card of cards) {
+        const text = card.innerText.toLowerCase();
+
+        // Extract title FIRST — filter keywords on title only, not full card text.
+        const titleEl = card.querySelector(
+            'h2, h3, [class*=title], [class*=Title], [class*=poly-component__title]'
+        );
+        const titleRaw = titleEl ? titleEl.innerText.trim() : '';
+        const title = titleRaw.length > 5
+            ? titleRaw
+            : (text.split('\\n').map(l => l.trim()).find(l => l.length > 15) || '');
+        const titleLower = title.toLowerCase();
+
+        // System exclusions: use full card text (broader safety net)
+        if (SYSTEM_EXCL.some(p => text.includes(p))) continue;
+        // Keyword matching: title only
+        if (modelKws.length > 0 && !modelKws.every(kw => titleLower.includes(kw))) continue;
+        if (matchKws.length > 0 && !matchKws.every(kw => titleLower.includes(kw))) continue;
+
+        let price = null;
+        const mainPriceEl = card.querySelector(
+            '.poly-price__current, [class*="price-tag-amount"], .ui-search-price__second-line'
+        );
+        const priceSource = mainPriceEl || card;
+        const fractionEl = priceSource.querySelector(
+            '.andes-money-amount__fraction, [class*="fraction"]'
+        );
+        const centsEl = priceSource.querySelector(
+            '.andes-money-amount__cents:not([class*="installment"]):not([class*="phrase"])'
+        );
+        if (fractionEl) {
+            const frac = fractionEl.innerText.replace(/\\./g, '').trim();
+            const cents = centsEl ? centsEl.innerText.trim().padEnd(2, '0').substring(0, 2) : '00';
+            const val = parseFloat(frac + '.' + cents);
+            if (!isNaN(val) && val > 100) price = val;
+        }
+        if (price === null) {
+            const m = text.match(/r\\$\\s*([\\d.]+)(?:,([\\d]{2}))?/);
+            if (m) {
+                const val = parseFloat(m[1].replace(/\\./g, '') + '.' + (m[2] || '00'));
+                if (!isNaN(val) && val > 300) price = val;
+            }
+        }
+
+        // Prefer the canonical permalink (contains /p/MLB) — this is what the
+        // product page verification needs. Fallback to any ML link.
+        const allLinks = Array.from(card.querySelectorAll('a[href*="mercadolivre"]'));
+        const permalink = allLinks.find(a => /[/]p[/]MLB/i.test(a.href));
+        const fallbackLink = card.querySelector('a[href*="mercadolivre.com"], a[href*="produto.mercadolivre"]');
+        const url = permalink ? permalink.href : (fallbackLink ? fallbackLink.href : null);
+
+        const matchCount = keywords.filter(kw => titleLower.includes(kw)).length;
+
+        // Availability: text markers + DOM signals
+        // ML's poly-card hides "indisponível" text in some layouts but:
+        //   - removes the buy/add-to-cart button entirely
+        //   - adds class poly-component__buy-box--unavailable
+        //   - or keeps text markers in older layouts
+        const hasBuyBtn = !!(
+            card.querySelector('.poly-component__buy-box') ||
+            card.querySelector('[class*="buy-box"]') ||
+            card.querySelector('[class*="add-to-cart"]') ||
+            card.querySelector('button[aria-label*="carri"]')
+        );
+        const hasUnavailableClass = !!(
+            card.querySelector('[class*="unavailable"]') ||
+            card.querySelector('[class*="indisponivel"]') ||
+            card.querySelector('[class*="out-of-stock"]')
+        );
+        const textUnavailable = (
+            text.includes('sem estoque') ||
+            text.includes('esgotado') ||
+            text.includes('indisponível') ||
+            text.includes('indisponivel') ||
+            text.includes('não disponível')
+        );
+
+        // Available = has price AND no explicit unavailability markers.
+        // We do NOT gate on hasBuyBtn — the button is sometimes lazy-loaded.
+        const available = price !== null && !hasUnavailableClass && !textUnavailable;
+
+        if (price !== null) results.push({ price, available, url, title: title.substring(0, 200), matchCount });
+    }
+    results.sort((a, b) => b.matchCount - a.matchCount || a.price - b.price);
+    return results;
+}"""
+
+
 
 class MercadoLivreScraper(BaseScraper):
     store_id = "mercadolivre"
@@ -63,7 +172,15 @@ class MercadoLivreScraper(BaseScraper):
 
     async def scrape(self) -> ScrapeResult:
         await asyncio.sleep(random.uniform(1.5, 3.5))
-        return await self._scrape_via_browser()
+        result = await self._browser_attempt()
+        if result is not None:
+            return result
+        logger.warning(f"[{self.store_id}] Tentativa 1 falhou, tentando novamente...")
+        await asyncio.sleep(random.uniform(2.0, 4.0))
+        result = await self._browser_attempt()
+        if result is not None:
+            return result
+        return ScrapeResult(self.store_id, None, False, "Erro", None)
 
     # ------------------------------------------------------------------
     # Cookie helpers
@@ -82,6 +199,10 @@ class MercadoLivreScraper(BaseScraper):
     async def _save_cookies(context) -> None:
         try:
             cookies = await context.cookies()
+            # Keep only latest 50 by expiration to prevent disk bloat
+            if len(cookies) > 50:
+                cookies.sort(key=lambda c: c.get("expires", c.get("expirationDate", 0)), reverse=True)
+                cookies = cookies[:50]
             COOKIE_FILE.write_text(json.dumps(cookies))
             logger.info("[mercadolivre] Cookies salvos em ml_cookies.json")
         except Exception as e:
@@ -93,7 +214,6 @@ class MercadoLivreScraper(BaseScraper):
 
     @staticmethod
     async def _try_login(page, context) -> bool:
-        """Attempt to log in with ML_EMAIL / ML_PASSWORD from environment."""
         email = os.getenv("ML_EMAIL", "").strip()
         password = os.getenv("ML_PASSWORD", "").strip()
         if not email or not password:
@@ -120,7 +240,6 @@ class MercadoLivreScraper(BaseScraper):
             await page.keyboard.press("Enter")
             await page.wait_for_timeout(random.randint(2500, 4000))
 
-            # Save cookies so subsequent runs skip login
             await MercadoLivreScraper._save_cookies(context)
             logger.info("[mercadolivre] Login realizado com sucesso.")
             return True
@@ -130,42 +249,19 @@ class MercadoLivreScraper(BaseScraper):
             return False
 
     # ------------------------------------------------------------------
-    # Browser fallback
+    # Browser attempt (uses shared browser)
     # ------------------------------------------------------------------
 
-    async def _scrape_via_browser(self) -> ScrapeResult:
-        result = await self._browser_attempt()
-        if result is not None:
-            return result
-        logger.warning("[mercadolivre] Browser tentativa 1 falhou, tentando novamente...")
-        await asyncio.sleep(random.uniform(2.0, 4.0))
-        result = await self._browser_attempt()
-        if result is not None:
-            return result
-        return ScrapeResult(self.store_id, None, False, "Erro", None)
-
     async def _browser_attempt(self) -> ScrapeResult | None:
-        from playwright.async_api import async_playwright
+        if self.browser is None:
+            logger.warning(f"[{self.store_id}] Sem browser compartilhado, pulando.")
+            return None
 
         ua = random.choice(USER_AGENTS)
         vp = random.choice(VIEWPORTS)
-        pw = None
-        browser = None
+        context = None
         try:
-            pw = await async_playwright().start()
-            browser = await pw.chromium.launch(
-                headless=True,
-                args=[
-                    "--disable-gpu",
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-blink-features=AutomationControlled",
-                    "--disable-features=IsolateOrigins,site-per-process",
-                    "--window-size=1920,1080",
-                ],
-            )
-
-            context = await browser.new_context(
+            context = await self.browser.new_context(
                 user_agent=ua,
                 locale="pt-BR",
                 timezone_id="America/Sao_Paulo",
@@ -184,18 +280,16 @@ class MercadoLivreScraper(BaseScraper):
             await context.add_init_script(_ML_EXTRA_STEALTH)
             await context.add_init_script(_PERMISSIONS_SCRIPT)
 
-            # Inject saved session cookies before first navigation
             saved = self._load_cookies()
             if saved:
                 try:
                     await context.add_cookies(saved)
-                    logger.info("[mercadolivre] Cookies carregados do arquivo.")
+                    logger.info(f"[{self.store_id}] Cookies carregados do arquivo.")
                 except Exception as e:
-                    logger.warning(f"[mercadolivre] Falha ao injetar cookies: {e}")
+                    logger.warning(f"[{self.store_id}] Falha ao injetar cookies: {e}")
 
             page = await context.new_page()
 
-            # Block heavy resources
             async def _route(route):
                 if route.request.resource_type in ("image", "media", "font"):
                     await route.abort()
@@ -205,32 +299,40 @@ class MercadoLivreScraper(BaseScraper):
             await page.route("**/*", _route)
 
             search_url = f"https://lista.mercadolivre.com.br/{self.search_term}{self._url_suffix}"
-            await page.goto(search_url, wait_until="commit", timeout=60_000)
-            await page.wait_for_timeout(random.randint(3000, 5000))
+            logger.info(f"[{self.store_id}] Navegando: {search_url}")
+            try:
+                await page.goto(search_url, wait_until="commit", timeout=60_000)
+            except Exception as e:
+                logger.warning(f"[{self.store_id}] Timeout de navegação: {e}")
+                return None
 
-            # Handle cookie consent banner
+            await page.wait_for_timeout(random.randint(3000, 5000))
+            logger.info(f"[{self.store_id}] URL final: {page.url}")
+            if self._url_suffix and self._url_suffix not in page.url:
+                logger.warning(f"[{self.store_id}] Filtro removido pelo redirect! suffix={self._url_suffix!r} não está em {page.url}")
+
             await self._dismiss_cookie_banner(page)
 
-            # Detect and handle login wall
             if "account-verification" in page.url:
-                logger.info("[mercadolivre] Login wall detectada, tentando contornar...")
+                logger.info(f"[{self.store_id}] Login wall detectada, tentando contornar...")
                 logged_in = await self._try_login(page, context)
                 if not logged_in:
                     logger.warning(
-                        "[mercadolivre] Sem credenciais ML. "
+                        f"[{self.store_id}] Sem credenciais ML. "
                         "Defina ML_EMAIL e ML_PASSWORD no .env ou exporte ml_cookies.json."
                     )
                     return None
 
-                # After login, navigate to the search page
-                await page.goto(search_url, wait_until="commit", timeout=60_000)
+                try:
+                    await page.goto(search_url, wait_until="commit", timeout=60_000)
+                except Exception as e:
+                    logger.warning(f"[{self.store_id}] Timeout pós-login: {e}")
+                    return None
                 await page.wait_for_timeout(random.randint(3000, 5000))
 
-            # Still on login wall after login attempt?
             if "account-verification" in page.url:
                 return None
 
-            # Wait for product cards
             try:
                 await page.wait_for_selector(
                     "li.ui-search-layout__item, div.poly-card, div.andes-card",
@@ -239,123 +341,77 @@ class MercadoLivreScraper(BaseScraper):
             except Exception:
                 await page.wait_for_timeout(random.randint(5000, 8000))
 
-            # Human-like scroll to trigger lazy loading
             await self._human_scroll(page)
 
-            # Save fresh cookies after successful page load
             await self._save_cookies(context)
 
-            products = await page.evaluate(
-                """([searchTerm, systemExcl]) => {
-                const keywords = searchTerm.replace(/-/g, ' ').toLowerCase().split(' ').filter(Boolean);
-                const sigKws = keywords.filter(kw => kw.length >= 2);
-                const matchKws = sigKws.length > 0 ? sigKws : keywords;
-                const modelKws = keywords.filter(kw => /[0-9]/.test(kw));
-                const SYSTEM_EXCL = systemExcl;
-
-                const selectors = [
-                    'li.ui-search-layout__item',
-                    'div.poly-card',
-                    'div.ui-search-result__content',
-                    'div.andes-card',
-                    'article',
-                ];
-
-                let cards = [];
-                for (const sel of selectors) {
-                    const found = document.querySelectorAll(sel);
-                    if (found.length >= 3) { cards = Array.from(found); break; }
-                }
-
-                const results = [];
-                for (const card of cards) {
-                    const text = card.innerText.toLowerCase();
-                    // Exclude pre-built systems
-                    if (SYSTEM_EXCL.some(p => text.includes(p))) continue;
-                    // ALL model keywords must match — prevents "ryzen 5" matching a motherboard
-                    if (modelKws.length > 0 && !modelKws.every(kw => text.includes(kw))) continue;
-                    // All significant keywords must match (prevents "4060" alone matching accessories)
-                    if (matchKws.length > 0 && !matchKws.every(kw => text.includes(kw))) continue;
-
-                    // Use specific price element — avoids picking up installment amounts
-                    let price = null;
-                    const mainPriceEl = card.querySelector(
-                        '.poly-price__current, [class*="price-tag-amount"], .ui-search-price__second-line'
-                    );
-                    const priceSource = mainPriceEl || card;
-                    const fractionEl = priceSource.querySelector(
-                        '.andes-money-amount__fraction, [class*="fraction"]'
-                    );
-                    const centsEl = priceSource.querySelector(
-                        '.andes-money-amount__cents:not([class*="installment"]):not([class*="phrase"])'
-                    );
-                    if (fractionEl) {
-                        // Brazilian thousands separator: "3.589" → 3589
-                        const frac = fractionEl.innerText.replace(/\\./g, '').trim();
-                        const cents = centsEl ? centsEl.innerText.trim().padEnd(2, '0').substring(0, 2) : '00';
-                        const val = parseFloat(frac + '.' + cents);
-                        if (!isNaN(val) && val > 100) price = val;
-                    }
-                    // Fallback: first R$ value in the card text that is > 300 (skips accessory prices)
-                    if (price === null) {
-                        const m = text.match(/r\\$\\s*([\\d.]+)(?:,([\\d]{2}))?/);
-                        if (m) {
-                            const val = parseFloat(m[1].replace(/\\./g, '') + '.' + (m[2] || '00'));
-                            if (!isNaN(val) && val > 300) price = val;
-                        }
-                    }
-
-                    const link = card.querySelector(
-                        'a[href*="mercadolivre.com"], a[href*="produto.mercadolivre"]'
-                    );
-                    const url = link ? link.href : null;
-                    const titleEl = card.querySelector(
-                        'h2, h3, [class*=title], [class*=Title], [class*=poly-component__title]'
-                    );
-                    const title = titleEl ? titleEl.innerText.trim() : '';
-
-                    // Relevance score: more keywords in title = better match
-                    const titleLower = title.toLowerCase();
-                    const matchCount = keywords.filter(kw => titleLower.includes(kw)).length;
-
-                    const available = price !== null
-                        && !text.includes('sem estoque')
-                        && !text.includes('esgotado');
-
-                    if (price !== null) results.push({ price, available, url, title: title.substring(0, 200), matchCount });
-                }
-                // Sort by relevance (most keywords matched in title), then by price
-                results.sort((a, b) => b.matchCount - a.matchCount || a.price - b.price);
-                return results;
-            }""",
-                [self.search_term, self._system_excl],
-            )
+            products = await page.evaluate(_EVAL_JS, [self.search_term, self._system_excl])
 
             if not products:
-                logger.info("[mercadolivre] Browser: nenhum resultado.")
-                return None
+                logger.info(f"[{self.store_id}] Nenhum resultado.")
+                return ScrapeResult(self.store_id, None, False, "Não encontrado", search_url)
 
-            # Results sorted by relevance (matchCount) then price — pick first available
+            logger.info(f"[{self.store_id}] {len(products)} resultado(s).")
             for p in products:
-                if p["available"] and p["price"] is not None:
-                    return ScrapeResult(
-                        self.store_id, p["price"], True, "Em estoque", p["url"],
-                    )
+                logger.info(f"[{self.store_id}] Match: {p['title']!r} | R${p['price']} | avail={p['available']}")
 
+            for p in products:
+                if p["available"] and p["price"] is not None and p["url"]:
+                    # Verify product page — ML sometimes lists products
+                    # with a price in search results even when the product
+                    # page says "indisponível"
+                    is_available = await self._verify_product_page(page, p["url"])
+                    if is_available:
+                        return ScrapeResult(self.store_id, p["price"], True, "Em estoque", p["url"])
+                    else:
+                        logger.info(f"[{self.store_id}] Produto indisponível na página: {p['title']!r}")
+                        # Continue to next candidate
+
+            # All candidates either unavailable or failed verification
             p = products[0]
             return ScrapeResult(
-                self.store_id, p["price"], p["available"],
-                "Em estoque" if p["available"] else "Esgotado", p["url"],
+                self.store_id, p["price"], False,
+                "Esgotado", p["url"],
             )
 
         except Exception as e:
-            logger.error(f"[mercadolivre] Browser attempt falhou: {e}")
+            logger.error(f"[{self.store_id}] Browser attempt falhou: {e}")
             return None
         finally:
-            if browser:
-                await browser.close()
-            if pw:
-                await pw.stop()
+            if context:
+                await context.close()
+
+    async def _verify_product_page(self, page, url: str) -> bool:
+        """
+        Navigate to the product page and confirm it's actually in stock.
+        ML search results show a price even for "indisponível" products.
+        """
+        logger.info(f"[{self.store_id}] Verificando disponibilidade: {url}")
+        try:
+            await page.goto(url, wait_until="commit", timeout=15_000)
+            await page.wait_for_timeout(random.randint(1500, 2500))
+            content = await page.content()
+            content_lower = content.lower()
+
+            unavailable_markers = [
+                "indisponível",
+                "indisponivel",
+                "este produto está indisponível",
+                "produto indisponível",
+                "sem estoque",
+                "esgotado",
+            ]
+            for marker in unavailable_markers:
+                if marker in content_lower:
+                    logger.info(f"[{self.store_id}] Verificação: '{marker}' encontrado → indisponível")
+                    return False
+
+            logger.info(f"[{self.store_id}] Verificação: produto disponível")
+            return True
+        except Exception as e:
+            logger.warning(f"[{self.store_id}] Verificação de página falhou: {e}")
+            # If verification fails, assume available to avoid false negatives
+            return True
 
     async def _dismiss_cookie_banner(self, page) -> None:
         for sel in (
@@ -383,7 +439,7 @@ class MercadoLivreScraper(BaseScraper):
 
 class MercadoLivreUsadoScraper(MercadoLivreScraper):
     store_id = "mercadolivre_usado"
-    _url_suffix = "_CONDICION_2230581"
+    _url_suffix = "_Condicao_2230581"
     _system_excl = [
         'pc gamer', 'pc gaming', 'computador gamer', 'computador completo',
         'desktop gamer', 'workstation', 'pc completo', 'notebook', 'laptop',

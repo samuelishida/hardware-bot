@@ -1,7 +1,7 @@
 # PreçoBot Deployment Guide - OCI VM
 
 ## VM Information
-- **Public IP**: 137.131.245.64
+- **Public IP**: 137.131.159.91
 - **Instance OCID**: `ocid1.instance.oc1.sa-saopaulo-1.antxeljrmpaenmacocvwieehfnr6r33qqzkops6voubp7zspjzydec3x7mga`
 - **Shape**: VM.Standard.E2.1.Micro
 - **OS**: Ubuntu (with Docker pre-installed via cloud-init)
@@ -26,7 +26,7 @@
    ```
 
 2. **Add key to VM via OCI Console**:
-   - Go to: OCI Console → Compute → Instances → yvy-server (137.131.245.64)
+   - Go to: OCI Console → Compute → Instances → yvy-server (137.131.159.91)
    - Click on the instance
    - Under "Resources" → "SSH Keys"
    - Click "Add SSH Key"
@@ -54,7 +54,7 @@ Use OCI Console's "Cloud-init" feature to add SSH key on next boot:
 
 3. **Deploy files**:
    ```powershell
-   ssh -i C:\temp\precosbot ubuntu@137.131.245.64
+   ssh -i C:\temp\precosbot ubuntu@137.131.159.91
    ```
 
 ### Option 3: Use OCI Instance Console Connection (Advanced)
@@ -69,12 +69,12 @@ Connect via serial console to add SSH key manually:
 
 ### 1. Upload files
 ```powershell
-scp -i C:\temp\precosbot E:\Code\Scripts\precosbot\precosbot_deploy.zip ubuntu@137.131.245.64:/tmp/
+scp -i C:\temp\precosbot E:\Code\Scripts\precosbot\precosbot_deploy.zip ubuntu@137.131.159.91:/tmp/
 ```
 
 ### 2. SSH into VM
 ```powershell
-ssh -i C:\temp\precosbot ubuntu@137.131.245.64
+ssh -i C:\temp\precosbot ubuntu@137.131.159.91
 ```
 
 ### 3. Setup on VM
@@ -150,10 +150,10 @@ After deployment, verify the bot is running:
 
 ```powershell
 # Check process
-ssh ubuntu@137.131.245.64 "ps aux | grep python"
+ssh ubuntu@137.131.159.91 "ps aux | grep python"
 
 # Check logs (if systemd)
-ssh ubuntu@137.131.245.64 "journalctl -u precosbot -f"
+ssh ubuntu@137.131.159.91 "journalctl -u precosbot -f"
 
 # Test in Discord
 # Run /status command - should respond with bot status

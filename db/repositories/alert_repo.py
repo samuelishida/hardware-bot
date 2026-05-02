@@ -6,7 +6,6 @@ Handles all database operations related to user price alerts.
 
 from __future__ import annotations
 from db.database import get_db
-from config import DEFAULT_PRODUCT, DEFAULT_SEARCH_TERM
 
 
 async def get_active_alerts() -> list[dict]:
@@ -31,8 +30,8 @@ async def deactivate_alert(discord_user_id: str) -> None:
 async def set_user_alert(
     discord_user_id: str,
     target_price: float,
-    product_name: str = DEFAULT_PRODUCT,
-    search_term: str = DEFAULT_SEARCH_TERM,
+    product_name: str = "",
+    search_term: str = "",
 ) -> None:
     """Set or update a user's price alert."""
     async with get_db() as db:

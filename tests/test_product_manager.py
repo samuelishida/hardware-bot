@@ -36,11 +36,6 @@ class TestProductManager:
         assert self.pm.normalize_search_term("RTX 4060 Ti") == "rtx-4060-ti"
         assert self.pm.normalize_search_term("  iPhone 15  ") == "iphone-15"
     
-    def test_format_price_brl(self):
-        """Test BRL price formatting."""
-        assert self.pm.format_price_brl(1234.56) == "R$ 1.234,56"
-        assert self.pm.format_price_brl(None) == "Indisponível"
-    
     def test_get_search_url(self):
         """Test search URL generation for all stores."""
         search_term = "rtx-4060"
@@ -64,22 +59,6 @@ class TestProductManager:
         ml_url = self.pm.get_search_url("mercadolivre", search_term)
         assert "rtx-4060" in ml_url
         assert "mercadolivre.com.br" in ml_url
-    
-    def test_get_store_display_names(self):
-        """Test store display names."""
-        names = self.pm.get_store_display_names()
-        assert names["kabum"] == "KaBuM!"
-        assert names["pichau"] == "Pichau"
-        assert names["terabyte"] == "Terabyte Shop"
-        assert names["mercadolivre"] == "Mercado Livre"
-        assert names["amazon"] == "Amazon BR"
-    
-    def test_get_store_colors(self):
-        """Test store colors are valid hex values."""
-        colors = self.pm.get_store_colors()
-        for store_id, color in colors.items():
-            assert isinstance(color, int)
-            assert 0 <= color <= 0xFFFFFF
 
 
 class TestProduct:

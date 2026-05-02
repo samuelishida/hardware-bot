@@ -16,6 +16,7 @@ from db.repositories.price_repo import (
     get_latest_by_store,
     get_all_latest,
     get_price_history,
+    get_history_stats,
     get_historical_min,
     PriceRecord,
 )
@@ -42,15 +43,13 @@ async def test_db() -> AsyncGenerator[aiosqlite.Connection, None]:
 
     await conn.execute("""
         CREATE TABLE price_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            store_id TEXT NOT NULL,
-            product_name TEXT DEFAULT 'AMD Ryzen 5 5700X3D',
-            search_term TEXT DEFAULT 'ryzen-5-5700x3d',
-            price REAL,
-            available INTEGER,
-            stock_label TEXT,
-            url TEXT,
-            scraped_at TEXT DEFAULT CURRENT_TIMESTAMP
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            store_id     TEXT    NOT NULL,
+            product_name TEXT    DEFAULT 'AMD Ryzen 5 5700X3D',
+            price        REAL,
+            available    INTEGER,
+            scraped_at   TEXT    DEFAULT CURRENT_TIMESTAMP,
+            data         TEXT    NOT NULL DEFAULT '{}'
         )
     """)
 
@@ -162,9 +161,29 @@ class TestPriceRepository:
         await insert_price("kabum", 1500.00, True, "", "", "RTX 4060", "rtx-4060")
         await insert_price("kabum", 1400.00, True, "", "", "RTX 4060", "rtx-4060")
         await insert_price("kabum", 1600.00, True, "", "", "RTX 4060", "rtx-4060")
-        
+
         min_price = await get_historical_min(days=30, product_name="RTX 4060")
         assert min_price.price == 1400.00
+
+    @pytest.mark.asyncio
+    async def test_get_history_stats(self, test_db):
+        """Test SQL aggregation for history stats."""
+        await insert_price("kabum", 1500.00, True, "", "", "RTX 4060", "rtx-4060")
+        await insert_price("kabum", 1400.00, True, "", "", "RTX 4060", "rtx-4060")
+        await insert_price("kabum", 1600.00, True, "", "", "RTX 4060", "rtx-4060")
+
+        stats = await get_history_stats("kabum", days=30)
+        assert stats is not None
+        assert stats["min"] == 1400.00
+        assert stats["max"] == 1600.00
+        assert stats["avg"] == 1500.00
+        assert stats["n"] == 3
+
+    @pytest.mark.asyncio
+    async def test_get_history_stats_empty(self, test_db):
+        """Test get_history_stats returns None when no data."""
+        stats = await get_history_stats("nonexistent", days=30)
+        assert stats is None
 
 
 class TestAlertRepository:

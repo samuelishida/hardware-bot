@@ -1,281 +1,140 @@
-# 🤖 PreçoBot — Monitor de Preços de Hardware BR
+# PreçoBot — Brazilian Hardware Price Toolkit
 
-Bot de Discord que monitora preços e disponibilidade de produtos de hardware nas principais lojas brasileiras. Suporta **qualquer produto** com busca dinâmica, monitoramento por canal e alertas personalizados.
+Agentic scraping toolkit for Brazilian e-commerce stores: KaBuM!, Pichau, Terabyte Shop, Mercado Livre, Amazon BR.
 
----
-
-## Funcionalidades
-
-- **Busca dinâmica** — `/buscar RTX 4060 Ti` busca qualquer produto em 5 lojas
-- **Monitoramento contínuo** — `/monitorar iPhone 15 Pro` faz varreduras automáticas a cada 15 min
-- **Alerta de queda de preço** — notifica o canal quando o preço cai ≥ 5%
-- **Alerta de restoque** — avisa quando o produto volta ao estoque
-- **Alerta pessoal por DM** — `/alerta <produto> <valor>` recebe DM quando o preço atinge o alvo
-- **Histórico de preços** — mínimo, máximo e média por loja nos últimos N dias
-- **Multi-produto** — monitore vários produtos simultaneamente em canais diferentes
+Designed to be consumed by [hermes-agent](https://github.com/NousResearch/hermes-agent) via the subprocess CLI bridge (`agent_api.py`). No Discord bot, no fixed scheduler — all orchestration is done by the AI agent.
 
 ---
 
-## Lojas monitoradas
+## Stores
 
-| Loja | Método | Observação |
-|---|---|---|
-| KaBuM! | Playwright (browser) | Seletores: `article.productCard` |
-| Pichau | Playwright (browser) | React/MUI — aguarda `networkidle` |
-| Terabyte Shop | Playwright (browser) | Seletores: `div.pbox` |
-| Mercado Livre | API REST pública + Playwright fallback | Fallback em caso de 403 |
-| Amazon BR | Playwright (browser) | Anti-bot: delay aleatório + detecção de CAPTCHA |
-
----
-
-## Comandos
-
-| Comando | Descrição |
-|---|---|
-| `/precos [produto]` | Preços atuais (filtra por produto se especificado) |
-| `/buscar <produto>` | Busca preços de qualquer produto agora |
-| `/monitorar <produto>` | Começa a monitorar um produto neste canal |
-| `/parar <produto>` | Para de monitorar um produto |
-| `/lista` | Lista produtos monitorados neste canal |
-| `/alerta <valor> [produto]` | Configura alerta pessoal por DM |
-| `/alerta cancelar [produto]` | Remove alerta ativo |
-| `/historico [dias]` | Resumo de preços dos últimos N dias (padrão: 30) |
-| `/status` | Status do bot e lojas |
-| `/ajuda` | Lista de comandos |
+| Store | Scraper | Notes |
+|-------|---------|-------|
+| KaBuM! | Playwright | `article.productCard` |
+| Pichau | Playwright | React/MUI — waits for `networkidle` |
+| Terabyte Shop | Playwright | `div.pbox` |
+| Mercado Livre | Playwright + cookies | OCI IP blocked at CDN — needs `ml_cookies.json` |
+| Amazon BR | Playwright | Anti-bot: random delay + CAPTCHA detection |
 
 ---
 
-## Pré-requisitos
+## Python API
 
-- Python 3.10+
-- Conta de bot no [Discord Developer Portal](https://discord.com/developers/applications)
-- Permissões do bot: `Send Messages`, `Embed Links`, `Use Slash Commands`, `Send Messages in Threads`
+```python
+from toolkit import scrape, scrape_and_store, get_latest, get_history, best_deal, compare, get_analysis
+
+# Live scrape (30-120s)
+results = await scrape_and_store("RTX 4060 Ti")
+
+# Cached prices
+records = await get_latest("RTX 4060 Ti")
+
+# Best deal from cache
+deal = await best_deal("RTX 4060 Ti")
+
+# Price trend analysis
+analysis = await get_analysis("RTX 4060 Ti", days=30)
+```
 
 ---
 
-## Instalação
+## CLI (agent_api.py)
 
 ```bash
-# 1. Clone o projeto
-git clone https://github.com/seu-usuario/precobot.git
-cd precobot
+python agent_api.py check "RTX 4060 Ti"
+python agent_api.py latest "RTX 4060 Ti"
+python agent_api.py history "RTX 4060 Ti" 7
+python agent_api.py analysis "RTX 4060 Ti" 30
+python agent_api.py best-deal "RTX 4060 Ti"
+python agent_api.py compare "RTX 4060" | "RTX 4070"
+python agent_api.py list-tracked
+python agent_api.py db-stats
+```
 
-# 2. Instale as dependências Python
+All commands output JSON. Exit 1 with `{"success": false, "error": "..."}` on failure.
+
+---
+
+## Project Structure
+
+```
+toolkit.py              # Main async API
+agent_api.py            # CLI bridge for hermes-agent
+config.py               # Store config (URL templates, display names, colors)
+core/
+  product_manager.py    # Name normalization, URL generation
+  executor.py           # Playwright execution engine (shared browser, sequential)
+db/
+  database.py           # SQLite init, WAL config, get_db context manager
+  repositories/
+    price_repo.py       # Price history CRUD
+    alert_repo.py       # User alert CRUD
+    tracking_repo.py    # Tracked products CRUD
+scrapers/
+  base.py               # BaseScraper, ScrapeResult
+  kabum.py / pichau.py / terabyte.py / amazon.py / mercadolivre.py
+utils/
+  formatters.py         # format_price_brl, format_store_name
+tests/
+  test_all.py           # Quick validation
+  test_repositories.py  # DB layer (in-memory SQLite)
+  test_executor.py      # Executor (mocked Playwright)
+  test_embeds.py        # Toolkit function tests
+  test_integration.py   # Data flow tests
+  test_product_manager.py
+```
+
+---
+
+## Setup
+
+```bash
 pip install -r requirements.txt
-
-# 3. Instale o Chromium para o Playwright
 playwright install chromium
-
-# 4. Configure as variáveis de ambiente
-cp .env.example .env
-# Edite o .env com seu editor preferido
+python tests/test_all.py     # Verify imports
+python agent_api.py db-stats # Verify DB
 ```
 
 ---
 
-## Configuração
+## hermes-agent Integration
 
-Copie `.env.example` para `.env` e preencha:
+hermes calls `agent_api.py` as a subprocess through `precosbot.py` in the hermes tools directory.
+The hermes gateway runs as `hermes.service` on the OCI VM and connects to Discord.
 
-```env
-# Token do bot (Discord Developer Portal → Bot → Token)
-DISCORD_TOKEN=cole_seu_token_aqui
-
-# ID do servidor Discord
-DISCORD_GUILD_ID=123456789012345678
-
-# ID do canal onde os alertas automáticos serão enviados
-ALERT_CHANNEL_ID=123456789012345678
-
-# Intervalo de varredura em minutos (padrão: 15)
-SCRAPE_INTERVAL_MINUTES=15
-
-# Percentual mínimo de queda para disparar alerta (padrão: 5%)
-PRICE_DROP_THRESHOLD_PCT=5
-```
-
-> **Como obter os IDs:** Ative o Modo Desenvolvedor no Discord (`Configurações → Avançado → Modo Desenvolvedor`), depois clique com o botão direito no servidor ou canal e selecione **Copiar ID**.
+See `AGENTS.md` for full OCI deployment details.
 
 ---
 
-## Como rodar
+## Database
 
-```bash
-python main.py
-```
+SQLite at `precobot.db`. WAL mode. Tables:
 
-O bot irá:
-1. Criar o banco de dados `precobot.db` automaticamente
-2. Sincronizar os slash commands no servidor
-3. Iniciar o scheduler de varredura
-4. Aparecer como **online** no servidor com status *"Assistindo preços 🔍"*
+- `price_history` — one row per scrape per store per product
+- `user_alerts` — price alert targets per Discord user
+- `tracked_products` — products under active monitoring
+- `scheduler_locks` — concurrency guards (legacy, unused by toolkit)
 
 ---
 
-## Estrutura do projeto
+## Adding a Store
 
-```
-precobot/
-├── main.py                     # Entry point — orquestra bot + scheduler
-├── config.py                   # Variáveis de ambiente e constantes globais
-├── requirements.txt
-├── .env.example
-│
-├── bot/
-│   ├── cog_monitor.py          # Slash commands organizados por grupo
-│   └── embeds.py               # Fábrica de Discord Embeds
-│
-├── core/
-│   └── product_manager.py      # Normalização de busca, geração de URLs
-│
-├── db/
-│   ├── database.py             # Setup SQLite assíncrono (aiosqlite)
-│   ├── queries.py              # Camada de compatibilidade (re-exports)
-│   └── repositories/           # Padrão Repository por entidade
-│       ├── price_repo.py       # Operações de preço
-│       ├── alert_repo.py       # Operações de alerta
-│       └── tracking_repo.py    # Operações de monitoramento
-│
-├── scheduler/
-│   ├── jobs.py                 # Orquestração da varredura periódica
-│   ├── executor.py             # Motor de execução de scrapers
-│   └── dispatcher.py           # Disparo de alertas (canal + DM)
-│
-├── scrapers/
-│   ├── base.py                 # Classe abstrata BaseScraper + ScrapeResult
-│   ├── kabum.py                # KaBuM (Playwright)
-│   ├── pichau.py               # Pichau (Playwright + networkidle)
-│   ├── terabyte.py             # Terabyte Shop (Playwright)
-│   ├── mercadolivre.py         # Mercado Livre (httpx + Playwright fallback)
-│   └── amazon.py               # Amazon BR (Playwright + anti-bot)
-│
-├── utils/
-│   └── formatters.py           # Utilitários de formatação compartilhados
-│
-└── tests/                      # Testes unitários
-    ├── test_all.py             # Validação rápida
-    ├── test_formatters.py      # Testes de formatação
-    ├── test_product_manager.py # Testes do ProductManager
-    ├── test_repositories.py    # Testes dos repositórios
-    ├── test_executor.py        # Testes do executor
-    ├── test_embeds.py          # Testes dos embeds
-    └── test_integration.py     # Testes de integração
-```
+1. Create `scrapers/novaloja.py` — subclass `BaseScraper`, implement `async scrape() -> ScrapeResult`
+2. Add to `config.py`: `STORE_URL_TEMPLATES`, `STORE_DISPLAY_NAMES`, `STORE_COLORS`
+3. Register in `scrapers/__init__.py` under `BROWSER_SCRAPERS` or `HTTP_SCRAPERS`
 
 ---
 
-## Banco de dados
+## Dependencies
 
-SQLite criado automaticamente em `precobot.db` com três tabelas:
-
-### `price_history`
-Um registro por varredura por loja.
-
-| Coluna | Tipo | Descrição |
-|---|---|---|
-| `store_id` | TEXT | Identificador da loja (`kabum`, `pichau`, etc.) |
-| `product_name` | TEXT | Nome do produto (ex: `AMD Ryzen 5 5700X3D`) |
-| `search_term` | TEXT | Termo normalizado (ex: `ryzen-5-5700x3d`) |
-| `price` | REAL | Preço em R$ (`NULL` se indisponível) |
-| `available` | INTEGER | `1` = em estoque, `0` = fora |
-| `stock_label` | TEXT | Texto descritivo do estoque |
-| `url` | TEXT | URL direta do produto |
-| `scraped_at` | TEXT | Timestamp da varredura |
-
-### `user_alerts`
-Alertas de preço por usuário Discord.
-
-| Coluna | Tipo | Descrição |
-|---|---|---|
-| `discord_user` | TEXT | ID do usuário Discord |
-| `product_name` | TEXT | Nome do produto |
-| `search_term` | TEXT | Termo normalizado |
-| `target_price` | REAL | Dispara quando `price <= target_price` |
-| `active` | INTEGER | `1` = ativo, `0` = disparado/cancelado |
-
-### `tracked_products`
-Produtos sendo monitorados por canal.
-
-| Coluna | Tipo | Descrição |
-|---|---|---|
-| `channel_id` | TEXT | ID do canal Discord |
-| `product_name` | TEXT | Nome do produto |
-| `search_term` | TEXT | Termo normalizado |
-| `active` | INTEGER | `1` = ativo, `0` = removido |
+| Package | Use |
+|---------|-----|
+| `playwright` | Headless browser scraping |
+| `aiosqlite` | Async SQLite |
+| `httpx` | HTTP requests |
+| `python-dotenv` | `.env` loading |
+| `pytest` / `pytest-asyncio` | Tests |
 
 ---
 
-## Como adicionar uma nova loja
-
-**1.** Crie `scrapers/novaloja.py` herdando de `BaseScraper`:
-
-```python
-from .base import BaseScraper, ScrapeResult
-
-class NovaLojaScraper(BaseScraper):
-    store_id = "novaloja"
-
-    async def scrape(self) -> ScrapeResult:
-        page = await self._new_page()
-        await page.goto(f"https://novaloja.com.br/busca?q={self.search_term}")
-        # ... lógica de scraping
-        return ScrapeResult(
-            store_id=self.store_id,
-            price=preco,
-            available=disponivel,
-            stock_label="Em estoque",
-            url=url_do_produto,
-        )
-```
-
-**2.** Adicione a loja em `config.py`:
-
-```python
-STORE_URL_TEMPLATES["novaloja"]     = "https://novaloja.com.br/busca?q={query}"
-STORE_DISPLAY_NAMES["novaloja"]     = "Nova Loja"
-STORE_COLORS["novaloja"]            = 0xABCDEF
-```
-
-**3.** Registre o scraper em `bot/cog_monitor.py` e `scheduler/jobs.py`:
-
-```python
-from scrapers.novaloja import NovaLojaScraper
-BROWSER_SCRAPERS = [..., NovaLojaScraper]   # se usar Playwright
-# ou
-HTTP_SCRAPERS    = [..., NovaLojaScraper]   # se usar httpx
-```
-
----
-
-## Testes
-
-```bash
-# Validar tudo
-python tests/test_all.py
-
-# Testes específicos
-python -m pytest tests/test_formatters.py -v
-python -m pytest tests/test_product_manager.py -v
-python -m pytest tests/test_repositories.py -v
-python -m pytest tests/test_embeds.py -v
-python -m pytest tests/test_integration.py -v
-```
-
----
-
-## Dependências
-
-| Pacote | Versão mínima | Uso |
-|---|---|---|
-| `discord.py` | 2.3.0 | Bot Discord e slash commands |
-| `playwright` | 1.44.0 | Scraping com browser headless (Chromium) |
-| `aiosqlite` | 0.20.0 | SQLite assíncrono |
-| `apscheduler` | 3.10.0 | Scheduler de varredura periódica |
-| `httpx` | 0.27.0 | HTTP assíncrono para API do Mercado Livre |
-| `python-dotenv` | 1.0.0 | Leitura do arquivo `.env` |
-
----
-
-## Licença
-
-MIT
+MIT License

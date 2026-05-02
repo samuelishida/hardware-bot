@@ -38,18 +38,18 @@ class KabumScraper(BaseScraper):
             # Wait for product cards to render (KaBuM hydrates React async)
             try:
                 await page.wait_for_selector(
-                    'a[href*="/produto/"]', timeout=20_000
+                    'a[href*="/produto/"]', timeout=30_000
                 )
-                # Extra wait for card text to populate after hydration
-                await page.wait_for_timeout(5000)
+                # Extra wait for card text/prices to populate after hydration
+                await page.wait_for_timeout(8000)
             except Exception:
                 # Fallback: try waiting longer under memory pressure
                 logger.info("[kabum] Product cards slow to render, waiting longer...")
                 try:
                     await page.wait_for_selector(
-                        'a[href*="/produto/"]', timeout=25_000
+                        'a[href*="/produto/"]', timeout=60_000
                     )
-                    await page.wait_for_timeout(5000)
+                    await page.wait_for_timeout(8000)
                 except Exception:
                     logger.info("[kabum] Product cards did not render.")
                     return ScrapeResult(self.store_id, None, False, "Não encontrado", self.search_url)
@@ -78,13 +78,22 @@ class KabumScraper(BaseScraper):
                     if (!cardText || cardText.length < 10) continue;
                     const textLower = cardText.toLowerCase();
 
-                    // Exclude pre-built systems
+                    // Extract product name first (first meaningful line containing a keyword,
+                    // or first long line as fallback) — filter keywords against name only,
+                    // not full card text (avoids accessories matching via description)
+                    const lines = cardText.split('\\n').map(l => l.trim()).filter(l => l.length > 10);
+                    const name = lines.find(l => keywords.some(kw => l.toLowerCase().includes(kw)))
+                        || lines.find(l => l.length > 20)
+                        || lines[0] || '';
+                    const nameLower = name.toLowerCase();
+
+                    // System exclusions use full card text (broader safety net)
                     if (systemExclusions.some(p => textLower.includes(p))) continue;
 
-                    // All model keywords (containing digits) must match
-                    if (modelKws.length > 0 && !modelKws.every(kw => textLower.includes(kw))) continue;
-                    // All significant keywords must match (prevents "4060" alone matching accessories)
-                    if (matchKws.length > 0 && !matchKws.every(kw => textLower.includes(kw))) continue;
+                    // Keyword matching on product name only — prevents accessories matching
+                    // via compatibility notes in the card description
+                    if (modelKws.length > 0 && !modelKws.every(kw => nameLower.includes(kw))) continue;
+                    if (matchKws.length > 0 && !matchKws.every(kw => nameLower.includes(kw))) continue;
 
                     // Price extraction: find all R$ amounts, filter out installment fragments
                     const allPrices = Array.from(
@@ -95,20 +104,16 @@ class KabumScraper(BaseScraper):
                     let price = null;
                     if (allPrices.length > 0) {
                         const maxP = Math.max(...allPrices);
-                        // Keep prices >= 10% of max to exclude installment fragments
-                        const validPrices = allPrices.filter(p => p >= Math.max(30, maxP * 0.10));
+                        // Keep prices >= 60% of max to exclude installment/cashback/discount fragments
+                        const validPrices = allPrices.filter(p => p >= Math.max(30, maxP * 0.60));
                         if (validPrices.length > 0) price = Math.min(...validPrices);
                     }
-
-                    // Extract product name: first text line that contains a keyword
-                    const lines = cardText.split('\\n').map(l => l.trim()).filter(l => l.length > 10);
-                    const name = lines.find(l => keywords.some(kw => l.toLowerCase().includes(kw))) || lines[0] || '';
 
                     const available = price !== null
                         && !textLower.includes('indisponível')
                         && !textLower.includes('esgotado');
 
-                    const matchCount = keywords.filter(kw => textLower.includes(kw)).length;
+                    const matchCount = keywords.filter(kw => nameLower.includes(kw)).length;
                     results.push({
                         href: card.href || '',
                         price, available,
@@ -122,24 +127,24 @@ class KabumScraper(BaseScraper):
             }""",
                 {"searchTerm": self.search_term, "systemExclusions": SYSTEM_EXCLUSIONS},
             )
+
+            if not products:
+                logger.info("[kabum] Nenhum produto encontrado na página de resultados.")
+                return ScrapeResult(self.store_id, None, False, "Não encontrado", self.search_url)
+
+            logger.info(f"[kabum] {len(products)} produto(s) encontrado(s).")
+
+            for p in products:
+                if p["available"] and p["price"] is not None:
+                    url = p["href"] if p["href"].startswith("http") else f"https://www.kabum.com.br{p['href']}"
+                    return ScrapeResult(self.store_id, p["price"], True, "Em estoque", url)
+
+            p = products[0]
+            url = p["href"] if p["href"].startswith("http") else f"https://www.kabum.com.br{p['href']}"
+            available = "esgotado" not in (p.get("name", "") or "").lower() and p["price"] is not None
+            return ScrapeResult(
+                self.store_id, p["price"], available,
+                "Em estoque" if available else "Esgotado", url,
+            )
         finally:
             await page.context.close()
-
-        if not products:
-            logger.info("[kabum] Nenhum produto encontrado na página de resultados.")
-            return ScrapeResult(self.store_id, None, False, "Não encontrado", self.search_url)
-
-        logger.info(f"[kabum] {len(products)} produto(s) encontrado(s).")
-
-        for p in products:
-            if p["available"] and p["price"] is not None:
-                url = p["href"] if p["href"].startswith("http") else f"https://www.kabum.com.br{p['href']}"
-                return ScrapeResult(self.store_id, p["price"], True, "Em estoque", url)
-
-        p = products[0]
-        url = p["href"] if p["href"].startswith("http") else f"https://www.kabum.com.br{p['href']}"
-        available = "esgotado" not in (p.get("name", "") or "").lower() and p["price"] is not None
-        return ScrapeResult(
-            self.store_id, p["price"], available,
-            "Em estoque" if available else "Esgotado", url,
-        )

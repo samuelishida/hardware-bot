@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import Optional
-from config import STORE_URL_TEMPLATES, STORE_COLORS, STORE_DISPLAY_NAMES
+from config import STORE_URL_TEMPLATES
 
 
 @dataclass
@@ -63,20 +63,4 @@ class ProductManager:
             store_id: template.format(query=search_term)
             for store_id, template in STORE_URL_TEMPLATES.items()
         }
-    
-    @staticmethod
-    def format_price_brl(price: Optional[float]) -> str:
-        """Formata preço em BRL."""
-        if price is None:
-            return "Indisponível"
-        return f"R$ {price:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    
-    @staticmethod
-    def get_store_colors() -> dict[str, int]:
-        """Retorna cores das lojas para embeds."""
-        return STORE_COLORS
-    
-    @staticmethod
-    def get_store_display_names() -> dict[str, str]:
-        """Retorna nomes amigáveis das lojas."""
-        return STORE_DISPLAY_NAMES
+

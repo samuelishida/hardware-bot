@@ -10,7 +10,9 @@ from .price_repo import (
     get_latest_by_store,
     get_all_latest,
     get_price_history,
+    get_history_stats,
     get_historical_min,
+    clear_price_cache,
 )
 
 from .alert_repo import (
@@ -37,7 +39,9 @@ __all__ = [
     "get_latest_by_store",
     "get_all_latest",
     "get_price_history",
+    "get_history_stats",
     "get_historical_min",
+    "clear_price_cache",
     # Alerts
     "get_active_alerts",
     "deactivate_alert",

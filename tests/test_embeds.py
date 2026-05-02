@@ -1,187 +1,94 @@
 """
-tests/test_embeds.py — Unit tests for bot/embeds.py.
+tests/test_embeds.py — Unit tests for toolkit.py interface.
 
-Tests verify that embed factories create valid Discord embeds with correct structure.
+Replaces old bot/embeds tests. Validates toolkit functions return correct structure.
 """
 
 import pytest
-from datetime import datetime
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, patch
 
-import discord
-
-from bot.embeds import (
-    make_price_drop_embed,
-    make_restock_embed,
-    make_user_alert_embed,
-    make_prices_table_embed,
-    make_history_embed,
-    make_search_results_embed,
-    make_tracking_list_embed,
-    make_help_embed,
-)
-from scrapers.base import ScrapeResult
+from db.repositories import PriceRecord
 
 
-# Mock ScrapeResult for tests
-def create_mock_result(store_id="kabum", price=1500.0, available=True):
-    return ScrapeResult(
+def _make_record(store_id="kabum", price=1500.0, available=True, scraped_at="2026-05-01 12:00:00"):
+    return PriceRecord(
         store_id=store_id,
         price=price,
         available=available,
         stock_label="Em estoque" if available else "",
-        url="https://example.com/product",
+        url=f"https://{store_id}.com/product",
+        scraped_at=scraped_at,
+        product_name="RTX 4060",
+        search_term="rtx-4060",
     )
 
 
-class TestMakePriceDropEmbed:
-    """Tests for make_price_drop_embed function."""
-    
-    def test_price_drop_embed_structure(self):
-        """Test that price drop embed has correct structure."""
-        result = create_mock_result()
-        embed = make_price_drop_embed(result, previous_price=2000.0, drop_pct=25.0, product_name="RTX 4060")
-        
-        assert isinstance(embed, discord.Embed)
-        assert "ALERTA DE PREÇO" in embed.title
-        assert "RTX 4060" in embed.title
-        assert embed.color == discord.Color.red()
-    
-    def test_price_drop_embed_fields(self):
-        """Test that price drop embed has correct fields."""
-        result = create_mock_result()
-        embed = make_price_drop_embed(result, 2000.0, 25.0, "RTX 4060")
-        
-        # Should have at least 4 fields
-        assert len(embed.fields) >= 4
-        
-        # Check for price field
-        price_field = next((f for f in embed.fields if "Preço" in f.name), None)
-        assert price_field is not None
+class TestToolkitGetLatest:
+    @pytest.mark.asyncio
+    async def test_get_latest_calls_repo(self):
+        records = [_make_record("kabum", 1500.0), _make_record("pichau", 1600.0)]
+        with patch("toolkit.get_all_latest", new=AsyncMock(return_value=records)) as mock:
+            from toolkit import get_latest
+            result = await get_latest("RTX 4060")
+            mock.assert_called_once_with(product_name="RTX 4060")
+            assert len(result) == 2
 
 
-class TestMakeRestockEmbed:
-    """Tests for make_restock_embed function."""
-    
-    def test_restock_embed_structure(self):
-        """Test that restock embed has correct structure."""
-        result = create_mock_result()
-        embed = make_restock_embed(result, product_name="RTX 4060")
-        
-        assert isinstance(embed, discord.Embed)
-        assert "RESTOQUE" in embed.title
-        assert "RTX 4060" in embed.title
-        assert embed.color == discord.Color.yellow()
-
-
-class TestMakeUserAlertEmbed:
-    """Tests for make_user_alert_embed function."""
-    
-    def test_user_alert_embed_structure(self):
-        """Test that user alert embed has correct structure."""
-        result = create_mock_result()
-        embed = make_user_alert_embed(result, target_price=1600.0, product_name="RTX 4060")
-        
-        assert isinstance(embed, discord.Embed)
-        assert "alerta" in embed.title.lower()
-        assert embed.color == discord.Color.green()
-
-
-class TestMakePricesTableEmbed:
-    """Tests for make_prices_table_embed function."""
-    
-    def test_prices_table_embed_structure(self):
-        """Test that prices table embed has correct structure."""
-        results = [
-            create_mock_result("kabum", 1500.0),
-            create_mock_result("pichau", 1600.0),
+class TestToolkitBestDeal:
+    @pytest.mark.asyncio
+    async def test_best_deal_returns_cheapest_available(self):
+        records = [
+            _make_record("kabum", 1500.0, available=True),
+            _make_record("pichau", 1400.0, available=True),
+            _make_record("terabyte", None, available=False),
         ]
-        embed = make_prices_table_embed(results, product_name="RTX 4060")
-        
-        assert isinstance(embed, discord.Embed)
-        assert "Preços" in embed.title
-        assert "RTX 4060" in embed.title
-        
-        # Should have a field for each store
-        assert len(embed.fields) == 2
-    
-    def test_prices_table_embed_highlights_lowest(self):
-        """Test that prices table embed highlights lowest price."""
-        results = [
-            create_mock_result("kabum", 1500.0),
-            create_mock_result("pichau", 1600.0),
-        ]
-        embed = make_prices_table_embed(results, product_name="RTX 4060")
-        
-        # Kabum field should have star emoji
-        kabum_field = next((f for f in embed.fields if "KaBuM" in f.name), None)
-        assert kabum_field is not None
-        assert "⭐" in kabum_field.value
+        with patch("toolkit.get_all_latest", new=AsyncMock(return_value=records)):
+            from toolkit import best_deal
+            result = await best_deal("RTX 4060")
+            assert result is not None
+            assert result.price == 1400.0
+            assert result.store_id == "pichau"
+
+    @pytest.mark.asyncio
+    async def test_best_deal_returns_none_when_no_available(self):
+        records = [_make_record("kabum", None, available=False)]
+        with patch("toolkit.get_all_latest", new=AsyncMock(return_value=records)):
+            from toolkit import best_deal
+            result = await best_deal("RTX 4060")
+            assert result is None
 
 
-class TestMakeHistoryEmbed:
-    """Tests for make_history_embed function."""
-    
-    def test_history_embed_structure(self):
-        """Test that history embed has correct structure."""
-        embed = make_history_embed(
-            store_id="kabum",
-            min_price=1400.0,
-            max_price=2000.0,
-            avg_price=1700.0,
-            days=30,
-            product_name="RTX 4060",
-        )
-        
-        assert isinstance(embed, discord.Embed)
-        assert "Histórico" in embed.title
-        
-        # Check for min/max/avg fields
-        field_names = [f.name for f in embed.fields]
-        assert "📉 Mínimo" in field_names
-        assert "📈 Máximo" in field_names
-        assert "⚖️ Média" in field_names
+class TestToolkitCompare:
+    @pytest.mark.asyncio
+    async def test_compare_returns_per_product_dict(self):
+        records_a = [_make_record("kabum", 1500.0)]
+        records_b = [_make_record("kabum", 2500.0)]
+        side_effects = [records_a, records_b]
+
+        async def mock_get_all_latest(**kwargs):
+            return side_effects.pop(0)
+
+        with patch("toolkit.get_all_latest", side_effect=mock_get_all_latest):
+            from toolkit import compare
+            result = await compare(["RTX 4060", "RTX 4070"])
+            assert "RTX 4060" in result
+            assert "RTX 4070" in result
+            assert result["RTX 4060"][0].price == 1500.0
 
 
-class TestMakeSearchResultsEmbed:
-    """Tests for make_search_results_embed function."""
-    
-    def test_search_results_embed_structure(self):
-        """Test that search results embed has correct structure."""
-        results = [
-            create_mock_result("kabum", 1500.0),
-            create_mock_result("pichau", 1600.0),
-        ]
-        embed = make_search_results_embed(results, product_name="RTX 4060")
-        
-        assert isinstance(embed, discord.Embed)
-        assert "🔍" in embed.title
-        assert "RTX 4060" in embed.title
+class TestToolkitGetAnalysis:
+    @pytest.mark.asyncio
+    async def test_get_analysis_structure(self):
+        stats = {"min": 1400.0, "max": 1600.0, "avg": 1500.0, "n": 3}
+        min_record = _make_record("kabum", 1400.0)
 
-
-class TestMakeTrackingListEmbed:
-    """Tests for make_tracking_list_embed function."""
-    
-    def test_tracking_list_embed_structure(self):
-        """Test that tracking list embed has correct structure."""
-        products = ["RTX 4060", "RTX 4070", "iPhone 15"]
-        embed = make_tracking_list_embed(channel_id="123456", products=products)
-        
-        assert isinstance(embed, discord.Embed)
-        assert "Produtos Monitorados" in embed.title
-        assert len(products) == 3
-
-
-class TestMakeHelpEmbed:
-    """Tests for make_help_embed function."""
-    
-    def test_help_embed_structure(self):
-        """Test that help embed has correct structure."""
-        embed = make_help_embed()
-        
-        assert isinstance(embed, discord.Embed)
-        assert "Comandos" in embed.title
-        assert embed.color == discord.Color.blurple()
-        
-        # Should have multiple command fields
-        assert len(embed.fields) >= 5
+        with (
+            patch("toolkit.get_history_stats", new=AsyncMock(return_value=stats)),
+            patch("toolkit.get_historical_min", new=AsyncMock(return_value=min_record)),
+        ):
+            from toolkit import get_analysis
+            result = await get_analysis("RTX 4060", days=30)
+            assert result["product"] == "RTX 4060"
+            assert result["days"] == 30
+            assert "per_store" in result
+            assert result["overall_min"]["price"] == 1400.0
