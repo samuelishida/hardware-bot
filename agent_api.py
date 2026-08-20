@@ -16,6 +16,7 @@ Commands:
   db-stats                       Database statistics
   agent <product> [-- <target_price>] Full MAS pipeline (scrape → validate → deal)
   agent-traces [limit]           List recent MAS pipeline runs (default 10)
+  relevance-status               List learned relevance exclusions (self-healing)
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ def _store_dict(r, *, with_scraped_at: bool = False) -> dict:
         "available": r.available,
         "stock_label": r.stock_label,
         "url": r.url,
+        "title": getattr(r, "title", None),
     }
     if with_scraped_at:
         d["scraped_at"] = r.scraped_at
@@ -90,6 +92,7 @@ async def cmd_history(product: str, days: int) -> None:
                 "available": r.available,
                 "scraped_at": r.scraped_at,
                 "url": r.url,
+                "title": getattr(r, "title", None),
             }
             for r in records
         ],
@@ -217,6 +220,14 @@ async def cmd_agent_traces(limit: int = 10) -> None:
     print(json.dumps({"success": True, "runs": runs}))
 
 
+async def cmd_relevance_status() -> None:
+    """Lista os termos de relevância aprendidos (self-healing de relevância)."""
+    from db.repositories.relevance_repo import get_all_terms
+
+    terms = await get_all_terms()
+    print(json.dumps({"success": True, "relevance_overrides": terms}))
+
+
 def _split_days(argv: list[str], default: int) -> tuple[str, int]:
     """Separa ``<product> [--days N]`` de forma inequívoca.
 
@@ -240,7 +251,8 @@ async def main() -> None:
     if len(sys.argv) < 2:
         _err(
             "Usage: agent_api.py <check|latest|history|analysis|best-deal"
-            "|compare|scrape-and-store|list-tracked|db-stats|agent|agent-traces> [args...]"
+            "|compare|scrape-and-store|list-tracked|db-stats|agent|agent-traces"
+            "|relevance-status> [args...]"
         )
 
     from db.database import init_db
@@ -307,6 +319,9 @@ async def main() -> None:
         if len(sys.argv) >= 3 and sys.argv[2].isdigit():
             limit = min(max(1, int(sys.argv[2])), 100)
         await cmd_agent_traces(limit)
+
+    elif cmd == "relevance-status":
+        await cmd_relevance_status()
 
     else:
         _err(f"Unknown command: {cmd}")

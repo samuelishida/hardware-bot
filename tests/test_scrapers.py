@@ -5,12 +5,50 @@ Tests scraper logic without real HTTP requests or browser launches.
 """
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from scrapers.base import BaseScraper, ScrapeResult
 from scrapers.kabum import KabumScraper
 from scrapers.pichau import PichauScraper
 from scrapers.amazon import AmazonScraper
+from scrapers.terabyte import TeraScraper
+
+
+def _fake_browser(products: list[dict]):
+    """Fake Lightpanda browser facade que devolve ``products`` no evaluate."""
+    page = MagicMock()
+    page.evaluate = AsyncMock(return_value=products)
+    page.content = AsyncMock(return_value="<html>normal</html>")
+    page.goto = AsyncMock()
+    page.wait_for_selector = AsyncMock()
+    page.wait_for_timeout = AsyncMock()
+    page.title = AsyncMock(return_value="Loja")
+    page.set_extra_http_headers = AsyncMock()
+    context = MagicMock()
+    context.new_page = AsyncMock(return_value=page)
+    context.add_init_script = AsyncMock()
+    context.close = AsyncMock()
+    page.context = context
+    browser = MagicMock()
+    browser.new_context = AsyncMock(return_value=context)
+    return browser
+
+
+def _fake_pichau_browser(html: str):
+    """Fake browser para Pichau: ``page.goto`` devolve response com ``.text()``."""
+    page = MagicMock()
+    response = MagicMock()
+    response.text = AsyncMock(return_value=html)
+    page.goto = AsyncMock(return_value=response)
+    page.set_extra_http_headers = AsyncMock()
+    context = MagicMock()
+    context.new_page = AsyncMock(return_value=page)
+    context.add_init_script = AsyncMock()
+    context.close = AsyncMock()
+    page.context = context
+    browser = MagicMock()
+    browser.new_context = AsyncMock(return_value=context)
+    return browser
 
 
 class TestBaseScraper:
@@ -107,7 +145,8 @@ class TestScrapeResult:
         assert result.store_id == "kabum"
         assert result.price == 1500.0
         assert result.available is True
-    
+        assert result.title is None
+
     def test_create_result_none_price(self):
         """Test creating result with None price."""
         result = ScrapeResult(
@@ -118,7 +157,79 @@ class TestScrapeResult:
             url=None,
         )
         assert result.price is None
+
+
+class TestRelevanceFiltering:
+    """Inc 2: scrapers rejeitam acessório e setam title via is_relevant."""
+
+    @pytest.mark.asyncio
+    async def test_kabum_rejects_accessory_and_sets_title(self):
+        products = [
+            {"name": "Adaptador USB PS5 PS Link", "price": 119.0, "available": True,
+             "href": "https://kabum.com.br/produto/1/adaptador", "matchCount": 1},
+            {"name": "Console PS5 Slim", "price": 4799.90, "available": True,
+             "href": "https://kabum.com.br/produto/2/console", "matchCount": 2},
+        ]
+        scraper = KabumScraper(browser=_fake_browser(products), search_term="ps5")
+        with patch("scrapers.kabum.get_terms", new=AsyncMock(return_value=[])):
+            result = await scraper.scrape()
+        assert result.title == "Console PS5 Slim"
+        assert result.price == 4799.90
+        assert result.available is True
+
+    @pytest.mark.asyncio
+    async def test_kabum_all_accessories_returns_not_found(self):
+        products = [
+            {"name": "Adaptador USB PS5 PS Link", "price": 119.0, "available": True,
+             "href": "https://kabum.com.br/produto/1/adaptador", "matchCount": 1},
+        ]
+        scraper = KabumScraper(browser=_fake_browser(products), search_term="ps5")
+        with patch("scrapers.kabum.get_terms", new=AsyncMock(return_value=[])):
+            result = await scraper.scrape()
         assert result.available is False
+        assert result.price is None
+
+    @pytest.mark.asyncio
+    async def test_amazon_rejects_accessory_and_sets_title(self):
+        products = [
+            {"name": "Cabo HDMI PS5 2m", "price": 49.0, "available": True,
+             "href": "https://amazon.com.br/dp/1", "matchCount": 1},
+            {"name": "Console PS5 Slim", "price": 4799.90, "available": True,
+             "href": "https://amazon.com.br/dp/2", "matchCount": 2},
+        ]
+        scraper = AmazonScraper(browser=_fake_browser(products), search_term="ps5")
+        with patch("scrapers.amazon.get_terms", new=AsyncMock(return_value=[])):
+            result = await scraper.scrape()
+        assert result.title == "Console PS5 Slim"
+        assert result.price == 4799.90
+        assert result.available is True
+
+    @pytest.mark.asyncio
+    async def test_pichau_rejects_accessory_and_sets_title(self):
+        base = (
+            '<h2>Adaptador USB PS5 PS Link</h2><div class="price_vista">R$\xa0119,00</div>'
+            '<h2>Console PS5 Slim</h2><div class="price_vista">R$\xa04799,90</div>'
+        )
+        html = base + "<!-- padding -->" * 600  # > 5000 chars (pichau exige)
+        scraper = PichauScraper(browser=_fake_pichau_browser(html), search_term="ps5")
+        with patch("scrapers.pichau.get_terms", new=AsyncMock(return_value=[])):
+            result = await scraper.scrape()
+        assert result.title == "Console PS5 Slim"
+        assert result.price == 4799.90
+
+    @pytest.mark.asyncio
+    async def test_terabyte_rejects_accessory_and_sets_title(self):
+        products = [
+            {"name": "Cabo HDMI PS5 2m", "price": 49.0, "available": True,
+             "url": "https://terabyte.com.br/1", "matchCount": 1},
+            {"name": "Console PS5 Slim", "price": 4799.90, "available": True,
+             "url": "https://terabyte.com.br/2", "matchCount": 2},
+        ]
+        scraper = TeraScraper(browser=_fake_browser(products), search_term="ps5")
+        with patch("scrapers.terabyte.get_terms", new=AsyncMock(return_value=[])):
+            result = await scraper.scrape()
+        assert result.title == "Console PS5 Slim"
+        assert result.price == 4799.90
 
 
 if __name__ == "__main__":

@@ -4,6 +4,8 @@ import random
 import asyncio
 import re
 from .base import BaseScraper, ScrapeResult
+from .relevance import is_relevant
+from db.repositories.relevance_repo import get_terms
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +87,9 @@ class OLXScraper(BaseScraper):
 
             await page.wait_for_timeout(random.randint(3000, 5000))
 
+            # Termos aprendidos de relevância (Inc 3) — repassados ao _pick_best (sync).
+            extra_terms = await get_terms(self.store_id)
+
             # 1) Try __NEXT_DATA__ extraction first (the JSON is always fully
             #    populated once the SPA rehydrates, even if OCI anti-bot hides cards)
             raw = await page.evaluate("""
@@ -99,7 +104,7 @@ class OLXScraper(BaseScraper):
                     offers = self._extract_from_next_data(data)
                     if offers:
                         logger.info(f"[olx] {len(offers)} oferta(s) via __NEXT_DATA__.")
-                        return self._pick_best(offers, url)
+                        return self._pick_best(offers, url, extra_terms)
                 except Exception:
                     pass
 
@@ -143,7 +148,7 @@ class OLXScraper(BaseScraper):
 
             if offers:
                 logger.info(f"[olx] {len(offers)} oferta(s) via DOM.")
-                return self._pick_best(offers, url)
+                return self._pick_best(offers, url, extra_terms)
 
             return ScrapeResult(self.store_id, None, False,
                                 "Não encontrado", url)
@@ -213,9 +218,11 @@ class OLXScraper(BaseScraper):
                     pass
         return None
 
-    def _pick_best(self, offers: list[dict], fallback_url: str) -> ScrapeResult:
+    def _pick_best(self, offers: list[dict], fallback_url: str, extra_terms: list[str] | None = None) -> ScrapeResult:
         # Filter meaningful results
         valid = [o for o in offers if o.get('price') and o['price'] > 100]
+        # Filtro de relevância (Inc 3): rejeita acessórios/irrelevantes.
+        valid = [o for o in valid if is_relevant(o.get('title'), self.search_term, extra_terms)]
         if not valid:
             if offers:
                 return ScrapeResult(self.store_id, None, False,
@@ -231,4 +238,5 @@ class OLXScraper(BaseScraper):
             True,
             "Em estoque",
             best.get('url') or fallback_url,
+            title=best.get('title'),
         )

@@ -4,6 +4,8 @@ import random
 import asyncio
 import re
 from .base import BaseScraper, ScrapeResult
+from .relevance import is_relevant
+from db.repositories.relevance_repo import get_terms
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +86,9 @@ class EnjoeiScraper(BaseScraper):
 
             await page.wait_for_timeout(random.randint(2000, 4000))
 
+            # Termos aprendidos de relevância (Inc 3) — repassados ao _pick_best (sync).
+            extra_terms = await get_terms(self.store_id)
+
             # Enjoei product cards are SSR — scrape DOM directly
             offers = await page.evaluate(r"""(keywords) => {
                 const kws = keywords.replace(/-/g, ' ').toLowerCase().split(' ').filter(Boolean);
@@ -125,7 +130,7 @@ class EnjoeiScraper(BaseScraper):
 
             if offers and len(offers) > 0:
                 logger.info(f"[enjoei] {len(offers)} oferta(s) via DOM.")
-                return self._pick_best(offers, url)
+                return self._pick_best(offers, url, extra_terms)
 
             return ScrapeResult(self.store_id, None, False,
                                 "Não encontrado", url)
@@ -138,8 +143,10 @@ class EnjoeiScraper(BaseScraper):
             if context:
                 await context.close()
 
-    def _pick_best(self, offers: list[dict], fallback_url: str) -> ScrapeResult:
+    def _pick_best(self, offers: list[dict], fallback_url: str, extra_terms: list[str] | None = None) -> ScrapeResult:
         valid = [o for o in offers if o.get('price') and o['price'] > 50]
+        # Filtro de relevância (Inc 3): rejeita acessórios/irrelevantes.
+        valid = [o for o in valid if is_relevant(o.get('title'), self.search_term, extra_terms)]
         if not valid:
             if offers:
                 return ScrapeResult(self.store_id, None, False,
@@ -154,4 +161,5 @@ class EnjoeiScraper(BaseScraper):
             True,
             "Em estoque",
             best.get('url') or fallback_url,
+            title=best.get('title'),
         )

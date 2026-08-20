@@ -96,6 +96,18 @@ async def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_so_store_element
                 ON selector_overrides(store_id, element);
 
+            CREATE TABLE IF NOT EXISTS relevance_overrides (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                store_id   TEXT    NOT NULL,
+                term       TEXT    NOT NULL,
+                source     TEXT    NOT NULL DEFAULT 'llm',
+                created_at TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+                UNIQUE(store_id, term)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_ro_store
+                ON relevance_overrides(store_id);
+
             CREATE TABLE IF NOT EXISTS agent_runs (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 run_id      TEXT    NOT NULL,

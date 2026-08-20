@@ -13,7 +13,8 @@ _COLS = """
     id, store_id, product_name, price, available, scraped_at,
     json_extract(data, '$.search_term') AS search_term,
     json_extract(data, '$.stock_label') AS stock_label,
-    json_extract(data, '$.url')         AS url
+    json_extract(data, '$.url')         AS url,
+    json_extract(data, '$.title')       AS title
 """
 
 
@@ -27,6 +28,7 @@ class PriceRecord:
     scraped_at: str
     product_name: str = ""
     search_term: str = ""
+    title: Optional[str] = None
 
 
 def _to_record(r) -> PriceRecord:
@@ -39,6 +41,7 @@ def _to_record(r) -> PriceRecord:
         scraped_at=r["scraped_at"],
         product_name=r["product_name"] or "",
         search_term=r["search_term"] or "",
+        title=r["title"],
     )
 
 
@@ -50,12 +53,13 @@ async def insert_price(
     url: Optional[str],
     product_name: str = "",
     search_term: str = "",
+    title: Optional[str] = None,
 ) -> None:
     async with get_db() as db:
         await db.execute(
             """INSERT INTO price_history (store_id, product_name, price, available, data)
-               VALUES (?, ?, ?, ?, json_object('search_term', ?, 'stock_label', ?, 'url', ?))""",
-            (store_id, product_name, price, int(available), search_term, stock_label, url),
+               VALUES (?, ?, ?, ?, json_object('search_term', ?, 'stock_label', ?, 'url', ?, 'title', ?))""",
+            (store_id, product_name, price, int(available), search_term, stock_label, url, title),
         )
         await db.commit()
 

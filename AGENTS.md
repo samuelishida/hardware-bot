@@ -78,6 +78,7 @@ python agent_api.py list-tracked                   List tracked products in DB
 python agent_api.py db-stats                       DB row counts and size
 python agent_api.py agent <product> [-- <target_price>]  Full MAS pipeline (30-180s)
 python agent_api.py agent-traces [limit]           Recent MAS runs (default 10)
+python agent_api.py relevance-status               Learned relevance exclusions
 ```
 
 All commands output JSON to stdout. Exit 1 with `{"success": false, "error": "..."}` on error.
@@ -103,6 +104,10 @@ START → scraper → analyst ─┬─(ok)────────────�
 - **Observabilidade** — cada `run_agent_pipeline` grava 1 linha em `agent_runs`
   (`run_repo.py`). Falha de gravação → log, **nunca** propaga. Run abortado
   (`finished_at` nulo) aparece como `status="incomplete"` em `agent-traces`.
+- **Relevância** — `scrapers/relevance.py` (`is_relevant` + `ACCESSORY_TERMS`)
+  rejeita acessórios na origem (todos os scrapers) e no Analista. Termos aprendidos
+  vivem em `relevance_overrides` (`relevance_repo.py`); `relevance-status` lista.
+  "Override é otimização, nunca requisito" — DB/LLM fora → no-op com log.
 
 ### Env vars (MAS)
 

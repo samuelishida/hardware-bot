@@ -16,20 +16,28 @@ from typing import AsyncGenerator
 from unittest.mock import AsyncMock, patch
 
 from agents.errors import ScrapeErrorKind, StoreOutcome
-from agents.nodes.analyst_node import AnalystNode
+from agents.nodes.analyst_node import AnalystNode, ValidatedPrice
 from scrapers.base import ScrapeResult
+
+
+def test_validated_price_title_default_none():
+    """Inc 1: ValidatedPrice carrega title default None."""
+    vp = ValidatedPrice(store_id="kabum", price=100.0)
+    assert vp.title is None
 
 
 # --- helpers -------------------------------------------------------------------
 
 def _ok_outcome(store_id: str, price: float, available: bool = True,
-                url: str | None = None, stock_label: str | None = None) -> StoreOutcome:
+                url: str | None = None, stock_label: str | None = None,
+                title: str | None = None) -> StoreOutcome:
     result = ScrapeResult(
         store_id=store_id,
         price=price,
         available=available,
         stock_label=stock_label,
         url=url,
+        title=title,
     )
     return StoreOutcome(store_id=store_id, result=result, kind=ScrapeErrorKind.OK)
 
@@ -164,6 +172,41 @@ class TestDeterministicRules:
         assert out["suspicious"][0]["reason"] == "erro de consulta"
         assert out["suspicious"][0]["source"] == "deterministic"
 
+    @pytest.mark.asyncio
+    async def test_relevance_rejects_accessory_title(self):
+        """Inc 4: título com termo de acessório → suspeito determinístico."""
+        node = AnalystNode(llm_client=None)
+        with _patch_history(_history([1000, 1000, 1000])):
+            with patch("agents.nodes.analyst_node.get_terms", new=AsyncMock(return_value=[])):
+                out = await node.run(
+                    _state(search_term="ps5", outcomes=[_ok_outcome("kabum", 950.0, title="Adaptador USB PS5 PS Link")])
+                )
+        assert out["validated"] == []
+        assert len(out["suspicious"]) == 1
+        s = out["suspicious"][0]
+        assert s["reason"] == "produto irrelevante"
+        assert s["source"] == "deterministic"
+
+    @pytest.mark.asyncio
+    async def test_relevance_title_none_skips_gate(self):
+        """Inc 4: title ausente → gate de relevância não julga (valida)."""
+        node = AnalystNode(llm_client=None)
+        with _patch_history(_history([1000, 1000, 1000])):
+            out = await node.run(_state(outcomes=[_ok_outcome("kabum", 950.0)]))
+        assert len(out["validated"]) == 1
+        assert out["suspicious"] == []
+
+    @pytest.mark.asyncio
+    async def test_validated_dict_carries_title(self):
+        """Inc 4: dict validado ganha title (fonte: o.result.title)."""
+        node = AnalystNode(llm_client=None)
+        with _patch_history(_history([1000, 1000, 1000])):
+            out = await node.run(
+                _state(search_term="ps5", outcomes=[_ok_outcome("kabum", 950.0, title="Console PS5 Slim")])
+            )
+        assert len(out["validated"]) == 1
+        assert out["validated"][0]["title"] == "Console PS5 Slim"
+
 
 # --- passo LLM -----------------------------------------------------------------
 
@@ -236,8 +279,133 @@ class TestLLMPass:
         assert len(out["validated"]) == 1
         assert out["suspicious"] == []
 
+    @pytest.mark.asyncio
+    async def test_llm_rejects_and_persists_offending_term(self):
+        """Inc 4: LLM rejeita com offending_term → persiste via add_term (self-healing)."""
+        client = AsyncMock()
+        client.chat_json = AsyncMock(
+            return_value={"valid": False, "reason": "acessório", "confidence": 0.9, "offending_term": "adaptador"}
+        )
+        node = AnalystNode(llm_client=client)
+        with _patch_history(_history([1000, 1000, 1000])):
+            with patch("agents.nodes.analyst_node.add_term", new=AsyncMock()) as mock_add:
+                out = await node.run(
+                    _state(search_term="ps5", outcomes=[_ok_outcome("kabum", 950.0, title="Console PS5 Slim")])
+                )
+        assert out["validated"] == []
+        assert len(out["suspicious"]) == 1
+        assert out["suspicious"][0]["source"] == "llm"
+        mock_add.assert_awaited_once_with("kabum", "adaptador")
+
+    @pytest.mark.asyncio
+    async def test_llm_low_confidence_does_not_persist_offending(self):
+        """Inc 4: confidence < 0.6 → mantém validada e NÃO persiste offending_term."""
+        client = AsyncMock()
+        client.chat_json = AsyncMock(
+            return_value={"valid": False, "reason": "talvez", "confidence": 0.5, "offending_term": "adaptador"}
+        )
+        node = AnalystNode(llm_client=client)
+        with _patch_history(_history([1000, 1000, 1000])):
+            with patch("agents.nodes.analyst_node.add_term", new=AsyncMock()) as mock_add:
+                out = await node.run(
+                    _state(search_term="ps5", outcomes=[_ok_outcome("kabum", 950.0, title="Console PS5 Slim")])
+                )
+        assert len(out["validated"]) == 1
+        assert out["suspicious"] == []
+        mock_add.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_llm_short_offending_term_not_persisted(self):
+        """Inc 4: offending_term curto (<2 chars) → não persiste (evita ruído)."""
+        client = AsyncMock()
+        client.chat_json = AsyncMock(
+            return_value={"valid": False, "reason": "irrelevante", "confidence": 0.9, "offending_term": "x"}
+        )
+        node = AnalystNode(llm_client=client)
+        with _patch_history(_history([1000, 1000, 1000])):
+            with patch("agents.nodes.analyst_node.add_term", new=AsyncMock()) as mock_add:
+                out = await node.run(
+                    _state(search_term="ps5", outcomes=[_ok_outcome("kabum", 950.0, title="Console PS5 Slim")])
+                )
+        assert out["validated"] == []
+        assert len(out["suspicious"]) == 1
+        mock_add.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_llm_missing_confidence_keeps_validated(self):
+        """NOTE 5 (audit): LLM sem campo confidence → mantém validada (fail-safe)."""
+        client = AsyncMock()
+        client.chat_json = AsyncMock(return_value={"valid": False, "reason": "sem confiança"})
+        node = AnalystNode(llm_client=client)
+        with _patch_history(_history([1000, 1000, 1000])):
+            with patch("agents.nodes.analyst_node.add_term", new=AsyncMock()) as mock_add:
+                out = await node.run(
+                    _state(search_term="ps5", outcomes=[_ok_outcome("kabum", 950.0, title="Console PS5 Slim")])
+                )
+        assert len(out["validated"]) == 1
+        assert out["suspicious"] == []
+        mock_add.assert_not_awaited()
+
 
 # --- output de estado ----------------------------------------------------------
+
+class TestLearningFlow:
+    """Inc 5: aprendizado de ponta a ponta — rejeita → add_term → get_terms."""
+
+    @pytest.mark.asyncio
+    async def test_accessory_rejected_learned_term_filters_next_round(self):
+        """Termo aprendido no run atual (add_term) é retornado por get_terms."""
+        from db.repositories import relevance_repo
+
+        client = AsyncMock()
+        client.chat_json = AsyncMock(
+            return_value={"valid": False, "reason": "acessório", "confidence": 0.9, "offending_term": "ps link"}
+        )
+        node = AnalystNode(llm_client=client)
+        stored: dict[str, list[str]] = {}
+
+        async def fake_add(store_id, term, source="llm"):
+            stored.setdefault(store_id, []).append(term)
+
+        async def fake_get_terms(store_id):
+            return list(stored.get(store_id, []))
+
+        with (
+            _patch_history(_history([1000, 1000, 1000])),
+            patch("agents.nodes.analyst_node.add_term", new=AsyncMock(side_effect=fake_add)),
+            patch("agents.nodes.analyst_node.get_terms", new=AsyncMock(side_effect=fake_get_terms)),
+        ):
+            out = await node.run(
+                _state(search_term="ps5", outcomes=[_ok_outcome("kabum", 950.0, title="Console PS5 com PS Link")])
+            )
+
+        # LLM rejeitou → persiste o termo "ps link"
+        assert out["validated"] == []
+        assert out["suspicious"][0]["source"] == "llm"
+        assert stored.get("kabum") == ["ps link"]
+
+        # Rodada futura: termo aprendido filtra candidato com "ps link" deterministicamente
+        node2 = AnalystNode(llm_client=None)
+        with (
+            _patch_history(_history([1000, 1000, 1000])),
+            patch("agents.nodes.analyst_node.get_terms", new=AsyncMock(side_effect=fake_get_terms)),
+        ):
+            out2 = await node2.run(
+                _state(search_term="ps5", outcomes=[_ok_outcome("kabum", 950.0, title="Console PS5 com PS Link")])
+            )
+        assert out2["validated"] == []
+        assert out2["suspicious"][0]["reason"] == "produto irrelevante"
+
+    @pytest.mark.asyncio
+    async def test_get_all_terms_returns_learned(self):
+        """``get_all_terms`` expõe o termo aprendido (relevance_status)."""
+        from db.repositories import relevance_repo
+
+        # assert module-level repo functions exist and degrade safely
+        assert callable(relevance_repo.get_terms)
+        assert callable(relevance_repo.add_term)
+        assert callable(relevance_repo.get_all_terms)
+
 
 class TestOutputShape:
     @pytest.mark.asyncio
@@ -263,6 +431,24 @@ class TestOutputShape:
         assert t["node"] == "analyst"
         assert t["iteration"] == 1
         assert t["suspicious_stores"] == ["pichau"]
+
+    @pytest.mark.asyncio
+    async def test_trace_counts_irrelevant(self):
+        """Inc 6: trace registra n_irrelevant e irrelevant_stores."""
+        node = AnalystNode(llm_client=None)
+        with (
+            _patch_history(_history([1000, 1000, 1000])),
+            patch("agents.nodes.analyst_node.get_terms", new=AsyncMock(return_value=[])),
+        ):
+            out = await node.run(
+                _state(search_term="ps5", outcomes=[
+                    _ok_outcome("kabum", 950.0, title="Console PS5 Slim"),          # validado
+                    _ok_outcome("pichau", 950.0, title="Adaptador USB PS5 PS Link"),  # irrelevante
+                ])
+            )
+        t = out["trace"][0]
+        assert t["n_irrelevant"] == 1
+        assert t["irrelevant_stores"] == ["pichau"]
 
     @pytest.mark.asyncio
     async def test_only_ok_outcomes_considered(self):

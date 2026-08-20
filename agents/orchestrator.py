@@ -244,6 +244,7 @@ def _to_validated_price(v: dict) -> ValidatedPrice:
         reason=v.get("reason", ""),
         history_avg=v.get("history_avg"),
         history_min=v.get("history_min"),
+        title=v.get("title"),
     )
 
 

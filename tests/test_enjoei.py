@@ -76,3 +76,15 @@ class TestPickBest:
         offers = [{"title": "X", "price": 250}]
         result = scraper._pick_best(offers, "https://fallback.url")
         assert result.url == "https://fallback.url"
+
+    def test_rejects_accessory_and_sets_title(self):
+        # Inc 3: acessório rejeitado, produto relevante retornado com title
+        scraper = EnjoeiScraper(search_term="ps5")
+        offers = [
+            {"title": "Adaptador USB PS5 PS Link", "price": 119, "url": "u1"},
+            {"title": "Console PS5 Slim", "price": 4799, "url": "u2"},
+        ]
+        result = scraper._pick_best(offers, "fallback")
+        assert result.title == "Console PS5 Slim"
+        assert result.price == 4799.0
+        assert result.url == "u2"

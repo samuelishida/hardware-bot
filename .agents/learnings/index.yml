@@ -4,3 +4,6 @@ mas-review-fixes:
 remove-mercadolivre:
   file: remove-mercadolivre.md
   description: Read before removing a store/scraper or editing the scraper registry (scrapers/__init__.py, config.py). Inventory ALL name spellings incl. comments/docstrings/prints and deploy-script heredocs; verify with a broad rg.
+relevance-filter:
+  file: relevance-filter.md
+  description: Read before touching scrapers/relevance.py, any scraper's pick-best loop (must set title), analyst_node.py relevance gate, relevance_repo.py, or the agent_api relevance-status command. The is_relevant(title, search_term, extra_terms) API is shared by all scrapers + analyst.

@@ -2,8 +2,8 @@
 
 Servidor MCP (FastMCP, transport stdio) que expõe o MAS e o toolkit como tools.
 É **fachada**: cada tool delega para o código existente (``run_agent_pipeline`` /
-``toolkit.get_latest`` / ``toolkit.get_history`` / ``selector_repo.get_all_overrides``)
-sem nova lógica de negócio.
+``toolkit.get_latest`` / ``toolkit.get_history`` / ``selector_repo.get_all_overrides`` /
+``relevance_repo.get_all_terms``) sem nova lógica de negócio.
 
 Contrato de erro idêntico ao ``agent_api``: em vez de lançar, cada tool retorna
 ``{"success": false, "error": "..."}``.
@@ -88,11 +88,20 @@ async def self_healing_status() -> dict | list[dict]:
     return await get_all_overrides()
 
 
+@_handle_errors("relevance_status")
+async def relevance_status() -> dict | list[dict]:
+    """Lista os termos de relevância aprendidos (self-healing de relevância)."""
+    from db.repositories.relevance_repo import get_all_terms
+
+    return await get_all_terms()
+
+
 # Registro explícito: mantém o nome de módulo como função plain (testável sem transport).
 mcp.tool()(run_agent)
 mcp.tool()(get_latest)
 mcp.tool()(get_history)
 mcp.tool()(self_healing_status)
+mcp.tool()(relevance_status)
 
 
 def main() -> None:

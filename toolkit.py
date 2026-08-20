@@ -43,6 +43,7 @@ async def scrape_and_store(product: str) -> list[ScrapeResult]:
             url=r.url,
             product_name=ps.name,
             search_term=ps.search_term,
+            title=r.title,
         )
         log_scrape(
             store_id=r.store_id,

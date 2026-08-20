@@ -89,7 +89,7 @@ class TestAgentResult:
             results=[ValidatedPrice(store_id="kabum", price=100.0)],
         )
         d = res.to_dict()
-        assert d["results"] == [{"store_id": "kabum", "price": 100.0, "available": True, "url": None, "stock_label": None, "reason": "", "history_avg": None, "history_min": None}]
+        assert d["results"] == [{"store_id": "kabum", "price": 100.0, "available": True, "url": None, "stock_label": None, "reason": "", "history_avg": None, "history_min": None, "title": None}]
 
     def test_to_dict_serializes_deal(self):
         res = AgentResult(

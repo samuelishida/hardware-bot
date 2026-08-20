@@ -118,6 +118,38 @@ class TestPriceRepository:
         assert latest.price == 1500.00
         assert latest.available is True
         assert latest.store_id == "kabum"
+
+    @pytest.mark.asyncio
+    async def test_insert_persists_title(self, test_db):
+        """Inc 6: insert_price persiste title; PriceRecord lê do DB."""
+        await insert_price(
+            store_id="kabum",
+            price=1500.00,
+            available=True,
+            stock_label="Em estoque",
+            url="https://kabum.com.br/product",
+            product_name="RTX 4060",
+            search_term="rtx-4060",
+            title="Placa de Vídeo RTX 4060",
+        )
+        latest = await get_latest_by_store("kabum", product_name="RTX 4060")
+        assert latest is not None
+        assert latest.title == "Placa de Vídeo RTX 4060"
+
+    @pytest.mark.asyncio
+    async def test_title_default_none_when_omitted(self, test_db):
+        """Inc 6: title omitido → None (compatibilidade com callers legados)."""
+        await insert_price(
+            store_id="kabum",
+            price=1500.00,
+            available=True,
+            stock_label="",
+            url="https://kabum.com.br/product",
+            product_name="RTX 4060",
+            search_term="rtx-4060",
+        )
+        latest = await get_latest_by_store("kabum", product_name="RTX 4060")
+        assert latest.title is None
     
     @pytest.mark.asyncio
     async def test_get_latest_by_store_product_filter(self, test_db):

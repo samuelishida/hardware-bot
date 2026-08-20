@@ -89,6 +89,7 @@ class ScrapeResult:
     available: bool
     stock_label: Optional[str]
     url: Optional[str]
+    title: Optional[str] = None
 
 
 class BaseScraper:

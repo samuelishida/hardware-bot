@@ -3,6 +3,8 @@ import logging
 import asyncio
 import random
 from .base import BaseScraper, ScrapeResult
+from .relevance import is_relevant
+from db.repositories.relevance_repo import get_terms
 
 logger = logging.getLogger(__name__)
 
@@ -134,17 +136,24 @@ class KabumScraper(BaseScraper):
 
             logger.info(f"[kabum] {len(products)} produto(s) encontrado(s).")
 
-            for p in products:
+            # Filtro de relevância (Inc 2): rejeita acessórios/irrelevantes na origem.
+            extra_terms = await get_terms(self.store_id)
+            relevant = [p for p in products if is_relevant(p.get("name"), self.search_term, extra_terms)]
+            if not relevant:
+                logger.info("[kabum] Nenhum produto relevante após filtro de relevância.")
+                return ScrapeResult(self.store_id, None, False, "Não encontrado", self.search_url)
+
+            for p in relevant:
                 if p["available"] and p["price"] is not None:
                     url = p["href"] if p["href"].startswith("http") else f"https://www.kabum.com.br{p['href']}"
-                    return ScrapeResult(self.store_id, p["price"], True, "Em estoque", url)
+                    return ScrapeResult(self.store_id, p["price"], True, "Em estoque", url, title=p.get("name"))
 
-            p = products[0]
+            p = relevant[0]
             url = p["href"] if p["href"].startswith("http") else f"https://www.kabum.com.br{p['href']}"
             available = "esgotado" not in (p.get("name", "") or "").lower() and p["price"] is not None
             return ScrapeResult(
                 self.store_id, p["price"], available,
-                "Em estoque" if available else "Esgotado", url,
+                "Em estoque" if available else "Esgotado", url, title=p.get("name"),
             )
         finally:
             await page.context.close()

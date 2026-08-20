@@ -56,6 +56,23 @@ def _make_result(status: str = "ok") -> AgentResult:
     )
 
 
+# --- _store_dict ---------------------------------------------------------------
+
+
+class TestStoreDict:
+    def test_includes_title(self):
+        """Inc 1: _store_dict serializa title (default None)."""
+        from scrapers.base import ScrapeResult
+
+        r = ScrapeResult(store_id="kabum", price=100.0, available=True, stock_label="", url="")
+        d = agent_api._store_dict(r)
+        assert d["title"] is None
+
+        r2 = ScrapeResult(store_id="kabum", price=100.0, available=True, stock_label="", url="", title="RTX 4060")
+        d2 = agent_api._store_dict(r2)
+        assert d2["title"] == "RTX 4060"
+
+
 # --- _parse_agent_args ---------------------------------------------------------
 
 
@@ -188,6 +205,21 @@ class TestMainDispatch:
         out = json.loads(capsys.readouterr().out)
         assert out["success"] is True
         assert out["product"] == "RTX 4060"
+
+    @pytest.mark.asyncio
+    async def test_relevance_status_command(self, capsys):
+        init_db = AsyncMock()
+        terms = [{"store_id": "kabum", "term": "adaptador", "source": "llm"}]
+        with (
+            patch("sys.argv", ["agent_api.py", "relevance-status"]),
+            patch("db.database.init_db", init_db),
+            patch("db.repositories.relevance_repo.get_all_terms", new=AsyncMock(return_value=terms)),
+        ):
+            await agent_api.main()
+
+        out = json.loads(capsys.readouterr().out)
+        assert out["success"] is True
+        assert out["relevance_overrides"] == terms
 
     @pytest.mark.asyncio
     async def test_agent_command_with_target_price(self, capsys):

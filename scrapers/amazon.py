@@ -3,6 +3,8 @@ import asyncio
 import logging
 import random
 from .base import BaseScraper, ScrapeResult, STEALTH_SCRIPT, USER_AGENTS, VIEWPORTS
+from .relevance import is_relevant
+from db.repositories.relevance_repo import get_terms
 
 logger = logging.getLogger(__name__)
 
@@ -158,17 +160,24 @@ class AmazonScraper(BaseScraper):
             for p in products:
                 logger.info(f"[amazon] Match: {p['name']!r} | R${p['price']}")
 
-            for p in products:
+            # Filtro de relevância (Inc 2): rejeita acessórios/irrelevantes na origem.
+            extra_terms = await get_terms(self.store_id)
+            relevant = [p for p in products if is_relevant(p.get("name"), self.search_term, extra_terms)]
+            if not relevant:
+                logger.info("[amazon] Nenhum produto relevante após filtro de relevância.")
+                return ScrapeResult(self.store_id, None, False, "Não encontrado", self.search_url)
+
+            for p in relevant:
                 if p["available"] and p["price"] is not None:
                     url = p["href"] or self.search_url
-                    return ScrapeResult(self.store_id, p["price"], True, "Em estoque", url)
+                    return ScrapeResult(self.store_id, p["price"], True, "Em estoque", url, title=p.get("name"))
 
-            p = products[0]
+            p = relevant[0]
             url = p["href"] or self.search_url
             available = p["available"] and p["price"] is not None
             return ScrapeResult(
                 self.store_id, p["price"], available,
-                "Em estoque" if available else "Indisponível", url,
+                "Em estoque" if available else "Indisponível", url, title=p.get("name"),
             )
 
         except Exception as e:

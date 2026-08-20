@@ -156,3 +156,22 @@ class TestPickBest:
         offers = [{"title": "X", "price": 3000}]
         result = scraper._pick_best(offers, "https://fallback.url")
         assert result.url == "https://fallback.url"
+
+    def test_rejects_accessory_and_sets_title(self):
+        # Inc 3: acessório rejeitado, produto relevante retornado com title
+        scraper = OLXScraper(search_term="ps5")
+        offers = [
+            {"title": "Adaptador USB PS5 PS Link", "price": 119, "url": "u1"},
+            {"title": "Console PS5 Slim", "price": 4799, "url": "u2"},
+        ]
+        result = scraper._pick_best(offers, "fallback")
+        assert result.title == "Console PS5 Slim"
+        assert result.price == 4799.0
+        assert result.url == "u2"
+
+    def test_all_accessories_returns_no_price(self):
+        scraper = OLXScraper(search_term="ps5")
+        offers = [{"title": "Adaptador USB PS5 PS Link", "price": 119, "url": "u1"}]
+        result = scraper._pick_best(offers, "fallback")
+        assert result.price is None
+        assert result.available is False

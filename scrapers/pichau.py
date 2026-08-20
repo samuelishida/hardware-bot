@@ -3,6 +3,8 @@ import logging
 import re
 import random
 from .base import BaseScraper, ScrapeResult
+from .relevance import is_relevant
+from db.repositories.relevance_repo import get_terms
 
 logger = logging.getLogger(__name__)
 
@@ -67,11 +69,16 @@ class PichauScraper(BaseScraper):
             match_keywords = significant_keywords if significant_keywords else search_keywords
             model_keywords = [kw for kw in search_keywords if any(c.isdigit() for c in kw)]
 
+            # Filtro de relevância (Inc 3): rejeita acessórios/irrelevantes na origem.
+            extra_terms = await get_terms(self.store_id)
+
             scored = []
             for name, price, url in products:
                 name_lower = name.lower()
                 # Exclude pre-built systems
                 if any(excl in name_lower for excl in SYSTEM_EXCLUSIONS):
+                    continue
+                if not is_relevant(name, self.search_term, extra_terms):
                     continue
                 if model_keywords and not all(kw in name_lower for kw in model_keywords):
                     continue
@@ -85,12 +92,12 @@ class PichauScraper(BaseScraper):
             for name, price, url, _ in scored:
                 available = "esgotado" not in name.lower() and price is not None
                 if available:
-                    return ScrapeResult(self.store_id, price, True, "Em estoque", url)
+                    return ScrapeResult(self.store_id, price, True, "Em estoque", url, title=name)
 
             if scored:
                 name, price, url, _ = scored[0]
                 available = "esgotado" not in name.lower() and price is not None
-                return ScrapeResult(self.store_id, price, available, "Em estoque" if available else "Esgotado", url)
+                return ScrapeResult(self.store_id, price, available, "Em estoque" if available else "Esgotado", url, title=name)
 
             logger.info("[pichau] Produto não encontrado após filtro.")
             return ScrapeResult(self.store_id, None, False, "Não encontrado", self.search_url)

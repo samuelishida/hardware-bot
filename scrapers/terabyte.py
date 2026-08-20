@@ -3,6 +3,8 @@ import logging
 import asyncio
 import random
 from .base import BaseScraper, ScrapeResult, STEALTH_SCRIPT, USER_AGENTS, VIEWPORTS
+from .relevance import is_relevant
+from db.repositories.relevance_repo import get_terms
 
 logger = logging.getLogger(__name__)
 
@@ -142,14 +144,21 @@ class TeraScraper(BaseScraper):
                 logger.info("[terabyte] Nenhum produto encontrado na página.")
                 return None
 
-            # Results sorted by relevance then price — pick first available
-            for p in products:
-                if p["available"] and p["price"] is not None:
-                    return ScrapeResult(self.store_id, p["price"], True, "Em estoque", p["url"])
+            # Filtro de relevância (Inc 3): rejeita acessórios/irrelevantes na origem.
+            extra_terms = await get_terms(self.store_id)
+            relevant = [p for p in products if is_relevant(p.get("name"), self.search_term, extra_terms)]
+            if not relevant:
+                logger.info("[terabyte] Nenhum produto relevante após filtro de relevância.")
+                return None
 
-            p = products[0]
+            # Results sorted by relevance then price — pick first available
+            for p in relevant:
+                if p["available"] and p["price"] is not None:
+                    return ScrapeResult(self.store_id, p["price"], True, "Em estoque", p["url"], title=p.get("name"))
+
+            p = relevant[0]
             return ScrapeResult(self.store_id, p["price"], p["available"],
-                                "Em estoque" if p["available"] else "Esgotado", p["url"])
+                                "Em estoque" if p["available"] else "Esgotado", p["url"], title=p.get("name"))
 
         except Exception as e:
             logger.error(f"[terabyte] Browser attempt falhou: {e}")

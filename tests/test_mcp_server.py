@@ -118,6 +118,26 @@ class TestSelfHealingStatus:
         fake.assert_awaited_once_with()
         assert out == overrides
 
+
+class TestRelevanceStatus:
+    async def test_lists_learned_terms(self):
+        terms = [
+            {"store_id": "kabum", "term": "adaptador", "source": "llm"},
+            {"store_id": "amazon", "term": "cabo", "source": "llm"},
+        ]
+        fake = AsyncMock(return_value=terms)
+        with patch("db.repositories.relevance_repo.get_all_terms", fake):
+            out = await mcp_server.relevance_status()
+        fake.assert_awaited_once_with()
+        assert out == terms
+
+    async def test_error_returns_error_dict(self):
+        fake = AsyncMock(side_effect=RuntimeError("table missing"))
+        with patch("db.repositories.relevance_repo.get_all_terms", fake):
+            out = await mcp_server.relevance_status()
+        assert out["success"] is False
+        assert "table missing" in out["error"]
+
     async def test_error_returns_error_dict(self):
         fake = AsyncMock(side_effect=RuntimeError("table missing"))
         with patch("db.repositories.selector_repo.get_all_overrides", fake):
@@ -130,4 +150,4 @@ class TestRegistration:
     async def test_all_tools_registered(self):
         tools = await mcp_server.mcp.list_tools()
         names = {t.name for t in tools}
-        assert {"run_agent", "get_latest", "get_history", "self_healing_status"} <= names
+        assert {"run_agent", "get_latest", "get_history", "self_healing_status", "relevance_status"} <= names
