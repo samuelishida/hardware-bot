@@ -1,0 +1,9 @@
+FROM qwen3.6:35b-a3b-mtp-q4_K_M
+
+# Contexto otimizado para 23GB de VRAM
+# ~20GB pesos + KV cache Q8 (~48KB/token) => ~64K tokens
+PARAMETER num_ctx 128000
+
+# Boas práticas para Qwen3 (chat)
+PARAMETER temperature 0.7
+PARAMETER top_p 0.8

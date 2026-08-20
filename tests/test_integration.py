@@ -15,7 +15,7 @@ class TestProductManagerIntegration:
         assert product.name == "RTX 4060 Ti"
         assert product.search_term == "rtx-4060-ti"
 
-        for store_id in ["kabum", "pichau", "terabyte", "amazon", "mercadolivre"]:
+        for store_id in ["kabum", "pichau", "terabyte", "amazon"]:
             url = pm.get_search_url(store_id, product.search_term)
             assert product.search_term in url
 

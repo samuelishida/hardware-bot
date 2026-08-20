@@ -5,6 +5,153 @@
 
 ---
 
+## [feature] 2026-08-19 — Migração Chrome/Playwright → Lightpanda
+
+### Summary
+Substituiu o **Playwright + Chromium** pelo **Lightpanda** (browser headless em Zig,
+CDP server, pico ~123 MB vs ~280 MB do Chromium) como motor de scraping. Decisões do
+usuário: apenas Lightpanda (sem fallback Playwright), remover Playwright por completo,
+migrar os 8 scrapers de uma vez.
+
+### Arquitetura
+
+- **`core/cdp.py`** (novo) — cliente CDP mínimo sobre `websockets` (correlação
+  id→resposta, `wait_event`, `on`).
+- **`core/browser.py`** (novo) — facade `LightpandaBrowser`/`Context`/`Page`/
+  `ElementHandle`/`Route` que espelha a superfície Playwright usada pelos scrapers.
+- **`core/executor.py`** — troca `async_playwright()`/`chromium.launch` por
+  `LightpandaBrowser.start()`; mesmo loop sequencial + timeout 90s.
+- **Scrapers** — usam a facade (mesma forma Playwright); `:has-text()` (ML) traduzido
+  para query JS por `textContent`; `Network.setBlockedURLs` usa `urlPatterns`.
+- **`requirements.txt`** — remove `playwright`, adiciona `websockets>=12.0`.
+- **Testes** — `tests/test_cdp.py` (10) + `tests/test_browser.py` (20) novos;
+  mocks de executor/scrapers/self_healing atualizados; `tests/test_live_lightpanda.py`
+  (smoke live gated por `PRECOSBOT_LIVE=1`).
+- **Docs** — AGENTS.md/README.md/CHANGELOG.md atualizados; `docs/lightpanda-spike.md`
+  (registro de decisão do spike).
+
+### Spike (Inc 1) — descobertas
+
+- Setup CDP obrigatório: `createBrowserContext → createTarget → attachToTarget`
+  (sessionId em todos os comandos).
+- Lightpanda suporta **1 browser context + 1 página por vez** → confirma design de
+  instância compartilhada.
+- `Network.setBlockedURLs` usa `urlPatterns`; `DOM.querySelector` requer
+  `DOM.getDocument` antes.
+- `STEALTH_SCRIPT` (APIs Chromium-only) roda sem lançar no Lightpanda.
+
+### Deploy
+
+- Binário Lightpanda instalado na VM (Inc 1): `/usr/local/bin/lightpanda`.
+- `LIGHTPANDA_DISABLE_TELEMETRY=true` no env do hermes.
+- Rollback: `git revert` + reinstalar Playwright (documentado).
+
+---
+
+## [feature] 2026-05-02 — Multi-Agent System (MAS): LangGraph + Ollama
+
+### Summary
+Transformed PreçoBot from a linear scraping pipeline into a **multi-agent system**:
+LangGraph orchestration with specialist agents and LLM-assisted decision points
+(Ollama, deterministic fallback). The LLM never vetoes a deterministic approval nor
+approves a deterministic rejection; if unavailable, everything degrades to
+deterministic mode.
+
+### Architecture
+
+```
+START → scraper → analyst ─┬─(ok)──────────────→ deal → END
+                           └─(re-scrape, ≤ N)──→ scraper   (feedback loop)
+```
+
+- **Scraper** — live scrape via `core/executor.py` (all stores, 1 shared browser).
+- **Analyst/Validator** — validates price/availability against history; optional LLM
+  for ambiguous cases.
+- **Deal Hunter** — deal verdict: discount vs. historical average + optional
+  `target_price`; optional LLM for the summary.
+- **Self-healing** — broken selectors produce overrides in `selector_overrides`;
+  "override is optimization, never a requirement" — any failure → no-op with log.
+- **Observability** — each `run_agent_pipeline` writes 1 row to `agent_runs`
+  (`run_repo.py`). Write failure → log, **never** propagates. Aborted runs
+  (`finished_at` null) surface as `status="incomplete"` in `agent-traces`.
+
+### Files Created
+
+#### `agents/` (new package)
+- `orchestrator.py` — LangGraph graph + `run_agent_pipeline()` (try/finally run
+  recording), `_build_nodes()` (patchable), `_wrap_node()` (per-node timeout),
+  `_route_after_analyst()` (feedback loop), `_build_result()`.
+- `state.py` — `AgentResult` / `ValidatedPrice` / `DealResult` dataclasses.
+- `config.py` — MAS env knobs (`agent_llm_mode`, `agent_max_iterations`,
+  `llm_base_url`, `llm_model`, `llm_api_key`, `llm_timeout`, `llm_num_predict`);
+  invalid values degrade to log + default, never raise.
+- `llm.py` — Ollama OpenAI-compatible client (httpx), explicit `num_predict`.
+- `self_healing.py` — selector self-healing (override é otimização, nunca requisito).
+- `mcp_server.py` — MCP server (FastMCP, stdio) exposing `run_agent`, `get_latest`,
+  `get_history`, `self_healing_status` as a thin facade (no new logic; error contract
+  matches `agent_api`).
+- `errors.py` — structured MAS errors.
+- `nodes/scraper_node.py`, `nodes/analyst_node.py`, `nodes/deal_node.py` — the three
+  specialist nodes (deterministic core + optional LLM).
+
+#### `db/repositories/run_repo.py`
+- `start_run(run_id, product)` — INSERT `status='running'`.
+- `finish_run(run_id, status, nodes, error, duration_ms)` — UPDATE with trace JSON.
+- `get_recent_runs(limit=10)` — recent runs; `finished_at` null → `status="incomplete"`.
+- All wrapped in try/except → log (never raise).
+
+### Files Modified
+
+- `db/database.py` — additive `agent_runs` table + index; `get_db_stats()` now
+  includes `agent_runs` count (degrades to 0 on old DBs).
+- `db/repositories/__init__.py` — exports `start_run`, `finish_run`, `get_recent_runs`.
+- `agent_api.py` — new commands `agent <product> [target_price]` and
+  `agent-traces [limit]`; `db-stats` includes run count.
+- `hermes/tools/precosbot.py` — new `precosbot_agent` tool (timeout 180s).
+- `hermes/toolsets.py` — `precosbot_agent` in core tools.
+- `hermes/skills/shopping/precosbot/SKILL.md` — `precosbot_agent` row +
+  check-vs-agent guidance + MCP server section.
+- `AGENTS.md`, `README.md` — "Multi-Agent System" section (architecture, env vars,
+  commands, deploy, MCP server).
+- `requirements.txt` — adds `langgraph>=0.2.0`, `fastmcp>=0.1.0`, `mcp>=1.0.0`.
+
+### New env vars
+
+| Var | Default | Descrição |
+|-----|---------|-----------|
+| `PRECOSBOT_AGENT_LLM` | `auto` | `auto` \| `on` \| `off` |
+| `PRECOSBOT_AGENT_MAX_ITERATIONS` | `2` | Cap de re-scrapes (clamp [1,10]) |
+| `PRECOSBOT_LLM_BASE_URL` | `http://127.0.0.1:11434/v1` | Ollama endpoint |
+| `PRECOSBOT_LLM_MODEL` | `qwen2.5:3b` | Modelo Ollama |
+| `PRECOSBOT_LLM_API_KEY` | `ollama` | API key |
+| `PRECOSBOT_LLM_TIMEOUT` | `60` | Timeout por chamada (s) |
+| `PRECOSBOT_LLM_NUM_PREDICT` | `2048` | Máx. tokens por resposta |
+
+### New commands
+
+```
+python agent_api.py agent <product> [target_price]   # Full MAS pipeline (30-180s)
+python agent_api.py agent-traces [limit]             # Recent MAS runs (default 10)
+```
+
+### Tests
+- `tests/test_orchestrator.py` — graph topology, feedback loop, iteration cap,
+  error status, duration, partial status, build_graph (7).
+- `tests/test_run_repo.py` — start/finish/get_recent on in-memory SQLite, error
+  paths never raise (11).
+- `tests/test_agent_api.py` — `agent`/`agent-traces` dispatch + arg parsing (14).
+- `tests/test_mcp_server.py` — MCP tools delegate + error contract, registration (11).
+- `tests/test_self_healing.py`, `tests/test_selector_repo.py` — self-healing (22).
+- Full suite: **212 passed**.
+
+### Deploy
+```bash
+ssh -i $SSH_KEY $VM "cd $REMOTE && git pull && pip install -r requirements.txt"
+# Ollama must be running on the VM (or set PRECOSBOT_AGENT_LLM=off)
+```
+
+---
+
 ## [refactor] 2026-05-02 — Agentic Mode + Used Products + Cleanup
 
 ### Summary

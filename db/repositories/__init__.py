@@ -32,6 +32,20 @@ from .tracking_repo import (
     get_tracked_product,
 )
 
+from .selector_repo import (
+    get_override,
+    upsert_override,
+    record_outcome,
+    invalidate_if_unreliable,
+    get_all_overrides,
+)
+
+from .run_repo import (
+    start_run,
+    finish_run,
+    get_recent_runs,
+)
+
 __all__ = [
     # Price
     "PriceRecord",
@@ -55,4 +69,14 @@ __all__ = [
     "get_all_tracked_products",
     "is_product_tracked",
     "get_tracked_product",
+    # Selector overrides (self-healing)
+    "get_override",
+    "upsert_override",
+    "record_outcome",
+    "invalidate_if_unreliable",
+    "get_all_overrides",
+    # Agent runs (observabilidade MAS)
+    "start_run",
+    "finish_run",
+    "get_recent_runs",
 ]

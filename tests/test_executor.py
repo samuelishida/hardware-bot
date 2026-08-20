@@ -29,13 +29,9 @@ class TestScrapeProduct:
             async def __aexit__(self, *a): return False
             async def scrape(self): raise Exception("fail")
 
-        with patch("core.executor.async_playwright") as mock_pw:
+        with patch("core.executor.LightpandaBrowser") as mock_browser_cls:
             mock_browser = AsyncMock()
-            ctx_mgr = AsyncMock()
-            ctx_mgr.__aenter__ = AsyncMock(return_value=ctx_mgr)
-            ctx_mgr.__aexit__ = AsyncMock(return_value=None)
-            ctx_mgr.chromium.launch = AsyncMock(return_value=mock_browser)
-            mock_pw.return_value = ctx_mgr
+            mock_browser_cls.return_value = mock_browser
 
             results = await scrape_product(
                 [GoodScraper, BadScraper, GoodScraper],
@@ -45,6 +41,8 @@ class TestScrapeProduct:
 
             assert len(results) == 2
             assert all(r is not None for r in results)
+            mock_browser.start.assert_awaited_once()
+            mock_browser.stop.assert_awaited_once()
 
     async def test_scrape_product_sequential_order(self):
         """All scraper classes run in order: browser first, then http."""
@@ -61,13 +59,9 @@ class TestScrapeProduct:
         class B(FakeBase): store_id = "browser2"
         class C(FakeBase): store_id = "http1"
 
-        with patch("core.executor.async_playwright") as mock_pw:
+        with patch("core.executor.LightpandaBrowser") as mock_browser_cls:
             mock_browser = AsyncMock()
-            ctx_mgr = AsyncMock()
-            ctx_mgr.__aenter__ = AsyncMock(return_value=ctx_mgr)
-            ctx_mgr.__aexit__ = AsyncMock(return_value=None)
-            ctx_mgr.chromium.launch = AsyncMock(return_value=mock_browser)
-            mock_pw.return_value = ctx_mgr
+            mock_browser_cls.return_value = mock_browser
 
             await scrape_product([A, B], [C], "test")
 
@@ -84,13 +78,9 @@ class TestScrapeProduct:
             async def scrape(self):
                 await asyncio.sleep(999)
 
-        with patch("core.executor.async_playwright") as mock_pw:
+        with patch("core.executor.LightpandaBrowser") as mock_browser_cls:
             mock_browser = AsyncMock()
-            ctx_mgr = AsyncMock()
-            ctx_mgr.__aenter__ = AsyncMock(return_value=ctx_mgr)
-            ctx_mgr.__aexit__ = AsyncMock(return_value=None)
-            ctx_mgr.chromium.launch = AsyncMock(return_value=mock_browser)
-            mock_pw.return_value = ctx_mgr
+            mock_browser_cls.return_value = mock_browser
 
             with patch("core.executor.SCRAPER_TIMEOUT", 0.1):
                 results = await scrape_product([SlowScraper], [], "test")

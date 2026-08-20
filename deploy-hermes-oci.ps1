@@ -124,11 +124,11 @@ mkdir -p ~/.hermes/skills/shopping/precosbot
 cat > ~/.hermes/skills/shopping/precosbot/SKILL.md << 'SKILLEOF'
 ---
 name: precosbot
-description: "Check and track product prices across Brazilian e-commerce stores (Amazon BR, KaBuM, Pichau, Mercado Livre, Terabyte Shop)."
+description: "Check and track product prices across Brazilian e-commerce stores (Amazon BR, KaBuM, Pichau, Terabyte Shop)."
 version: 1.0.0
 metadata:
   hermes:
-    tags: [prices, shopping, brazil, e-commerce, amazon, mercadolivre, kabum, pichau]
+    tags: [prices, shopping, brazil, e-commerce, amazon, kabum, pichau]
     category: shopping
     config:
       - key: precosbot.path
@@ -159,9 +159,7 @@ You have access to precosbot tools for checking prices across Brazilian e-commer
 
 ## Stores
 
-Amazon BR, KaBuM!, Pichau, Terabyte Shop, Mercado Livre (new + used)
-
-Note: Mercado Livre may be blocked from OCI IPs. Other stores are reliable.
+Amazon BR, KaBuM!, Pichau, Terabyte Shop
 
 ## Language
 

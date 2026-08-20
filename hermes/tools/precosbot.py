@@ -12,6 +12,7 @@ Tools exposed:
   precosbot_history      Price history over N days
   precosbot_list_tracked List products precosbot monitors automatically
   precosbot_db_stats     Database statistics
+  precosbot_agent        Full multi-agent pipeline (scrape + validate + deal)
 """
 
 from __future__ import annotations
@@ -85,6 +86,12 @@ def _run_api(args: list[str], timeout: int = 150) -> dict:
             cwd=str(path),
         )
         if proc.returncode != 0:
+            # agent_api._err() escreve o JSON de erro no stdout, não no stderr.
+            if proc.stdout.strip():
+                try:
+                    return json.loads(proc.stdout)
+                except json.JSONDecodeError:
+                    pass
             stderr = proc.stderr.strip() if proc.stderr else ""
             return {"success": False, "error": stderr or "agent_api.py exited non-zero"}
         try:
@@ -105,7 +112,7 @@ def _check_requirements() -> bool:
 # ── Tool handlers ─────────────────────────────────────────────────────────────
 
 def precosbot_check(product: str, task_id=None) -> str:
-    """Live price scrape — takes 30-120s (Playwright browser)."""
+    """Live price scrape — takes 30-120s (Lightpanda browser)."""
     return json.dumps(_run_api(["check", product], timeout=150))
 
 
@@ -116,7 +123,9 @@ def precosbot_latest(product: str, task_id=None) -> str:
 
 def precosbot_history(product: str, days: int = 7, task_id=None) -> str:
     """Return price history over N days from DB."""
-    return json.dumps(_run_api(["history", product, str(days)], timeout=15))
+    # agent_api.history agora usa o flag explícito `--days` (não posicional) para
+    # não corromper nomes de produto que terminam em dígitos (ex.: "RTX 4060").
+    return json.dumps(_run_api(["history", product, "--days", str(days)], timeout=15))
 
 
 def precosbot_list_tracked(task_id=None) -> str:
@@ -129,6 +138,17 @@ def precosbot_db_stats(task_id=None) -> str:
     return json.dumps(_run_api(["db-stats"], timeout=10))
 
 
+def precosbot_agent(product: str, target_price: float | None = None, task_id=None) -> str:
+    """Run the full multi-agent pipeline (scrape → validate → deal analysis).
+
+    Slower than precosbot_check (adds LLM validation + deal reasoning).
+    """
+    args = ["agent", product]
+    if target_price is not None:
+        args += ["--", str(target_price)]
+    return json.dumps(_run_api(args, timeout=180))
+
+
 # ── Tool registration ─────────────────────────────────────────────────────────
 
 registry.register(
@@ -138,8 +158,8 @@ registry.register(
         "name": "precosbot_check",
         "description": (
             "Live price scrape for a product across Brazilian e-commerce stores "
-            "(Amazon BR, KaBuM!, Pichau, Terabyte Shop, Mercado Livre). "
-            "Launches real Playwright browsers — takes 30-120 seconds. "
+            "(Amazon BR, KaBuM!, Pichau, Terabyte Shop). "
+            "Launches real Lightpanda browsers — takes 30-120 seconds. "
             "Use precosbot_latest for instant cached results."
         ),
         "parameters": {
@@ -233,5 +253,41 @@ registry.register(
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     handler=lambda args, **kw: precosbot_db_stats(task_id=kw.get("task_id")),
+    check_fn=_check_requirements,
+)
+
+registry.register(
+    name="precosbot_agent",
+    toolset="precosbot",
+    schema={
+        "name": "precosbot_agent",
+        "description": (
+            "Run the full multi-agent pipeline for a product: live scrape across "
+            "Brazilian stores, LLM-assisted price validation (flags suspicious "
+            "prices), and deal analysis against an optional target price. "
+            "Returns validated results, a deal verdict, a summary, and the agent "
+            "trace. Slower than precosbot_check (up to ~180s) — use it when the "
+            "user wants a confident answer, not just raw prices."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "product": {
+                    "type": "string",
+                    "description": "Product name to analyze (e.g. 'RTX 4070', 'Ryzen 5 5700X3D')",
+                },
+                "target_price": {
+                    "type": "number",
+                    "description": "Optional target price in BRL. If the best validated price is at or below it, the pipeline reports a deal.",
+                },
+            },
+            "required": ["product"],
+        },
+    },
+    handler=lambda args, **kw: precosbot_agent(
+        args.get("product", ""),
+        args.get("target_price"),
+        task_id=kw.get("task_id"),
+    ),
     check_fn=_check_requirements,
 )

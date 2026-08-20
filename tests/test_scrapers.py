@@ -11,7 +11,6 @@ from scrapers.base import BaseScraper, ScrapeResult
 from scrapers.kabum import KabumScraper
 from scrapers.pichau import PichauScraper
 from scrapers.amazon import AmazonScraper
-from scrapers.mercadolivre import MercadoLivreScraper
 
 
 class TestBaseScraper:
@@ -90,20 +89,6 @@ class TestAmazonScraper:
     def test_init_no_search_term(self):
         scraper = AmazonScraper()
         assert scraper.store_id == "amazon"
-        assert scraper.search_term is None
-
-
-class TestMercadoLivreScraper:
-    """Tests for MercadoLivreScraper."""
-
-    def test_init_with_search_term(self):
-        scraper = MercadoLivreScraper(search_term="rx-7900-xtx")
-        assert scraper.store_id == "mercadolivre"
-        assert scraper.search_term == "rx-7900-xtx"
-
-    def test_init_no_search_term(self):
-        scraper = MercadoLivreScraper()
-        assert scraper.store_id == "mercadolivre"
         assert scraper.search_term is None
 
 

@@ -18,15 +18,13 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from playwright.async_api import async_playwright
+from core.browser import LightpandaBrowser
 
 # Import scrapers
 from scrapers.kabum import KabumScraper
 from scrapers.pichau import PichauScraper
 from scrapers.amazon import AmazonScraper
 from scrapers.terabyte import TeraScraper
-from scrapers.mercadolivre import MercadoLivreScraper
-
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -54,10 +52,6 @@ BROWSER_SCRAPERS = [
     ("Terabyte", TeraScraper),
 ]
 
-# HTTP-based scraper
-HTTP_SCRAPERS = [
-    ("MercadoLivre", MercadoLivreScraper),
-]
 
 
 async def check_blocking_patterns(page, scraper_name: str) -> dict:
@@ -127,8 +121,9 @@ async def run_browser_scraper_with_screenshot(scraper_name: str, scraper_class, 
         logger.info(f"Testing {scraper_name} scraper...")
         logger.info(f"{'='*60}")
         
-        # Create a page for direct navigation and screenshot
-        page = await browser.new_page()
+        # Create a page for direct navigation and screenshot (facade: context+page)
+        context = await browser.new_context()
+        page = await context.new_page()
         
         scraper = scraper_class(browser=browser, search_term=SEARCH_TERM)
         
@@ -178,55 +173,7 @@ async def run_browser_scraper_with_screenshot(scraper_name: str, scraper_class, 
             logger.warning(f"[{scraper_name}] No price found")
             logger.warning(f"[{scraper_name}] Status: {scrape_result.stock_label}")
         
-        await page.close()
-        
-    except Exception as e:
-        result["error"] = str(e)
-        logger.error(f"[{scraper_name}] ERROR: {e}", exc_info=True)
-    
-    return result
-
-
-async def run_http_scraper(scraper_name: str, scraper_class) -> dict:
-    """Run an HTTP-based scraper and capture results."""
-    result = {
-        "scraper": scraper_name,
-        "success": False,
-        "price": None,
-        "available": False,
-        "stock_label": "",
-        "error": None,
-        "blocking": None,
-        "url": None,
-    }
-    
-    try:
-        logger.info(f"\n{'='*60}")
-        logger.info(f"Testing {scraper_name} scraper (HTTP API)...")
-        logger.info(f"{'='*60}")
-        
-        scraper = scraper_class(search_term=SEARCH_TERM)
-        async with scraper:
-            scrape_result = await scraper.scrape()
-        
-        result["success"] = scrape_result.price is not None or scrape_result.available
-        result["price"] = scrape_result.price
-        result["available"] = scrape_result.available
-        result["stock_label"] = scrape_result.stock_label
-        result["url"] = scrape_result.url
-        
-        if scrape_result.price:
-            logger.info(f"[{scraper_name}] SUCCESS - Price: R$ {scrape_result.price:.2f}")
-            logger.info(f"[{scraper_name}] Available: {scrape_result.available}")
-            logger.info(f"[{scraper_name}] Stock: {scrape_result.stock_label}")
-            logger.info(f"[{scraper_name}] URL: {scrape_result.url}")
-        else:
-            logger.warning(f"[{scraper_name}] No price found")
-            logger.warning(f"[{scraper_name}] Status: {scrape_result.stock_label}")
-            
-        # Check for API blocking
-        if scrape_result.stock_label == "Erro de rede":
-            result["blocking"] = {"patterns_found": ["HTTP API returned error (possible 403 blocking)"]}
+        await context.close()
         
     except Exception as e:
         result["error"] = str(e)
@@ -246,23 +193,10 @@ async def main():
     
     results = []
     
-    # Setup Playwright
-    logger.info("\nStarting Playwright browser...")
-    pw = await async_playwright().start()
-    
-    STEALTH_ARGS = [
-        "--disable-gpu",
-        "--no-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-extensions",
-        "--disable-blink-features=AutomationControlled",
-        "--window-size=1920,1080",
-    ]
-    
-    browser = await pw.chromium.launch(
-        headless=True,
-        args=STEALTH_ARGS,
-    )
+    # Setup Lightpanda (Inc 4: facade em vez de Playwright)
+    logger.info("\nStarting Lightpanda browser...")
+    browser = LightpandaBrowser()
+    await browser.start()
     
     logger.info("Browser launched\n")
     
@@ -272,16 +206,9 @@ async def main():
             result = await run_browser_scraper_with_screenshot(scraper_name, scraper_class, browser)
             results.append(result)
             await asyncio.sleep(2)  # Delay between scrapers
-        
-        # Run HTTP-based scrapers
-        for scraper_name, scraper_class in HTTP_SCRAPERS:
-            result = await run_http_scraper(scraper_name, scraper_class)
-            results.append(result)
-            await asyncio.sleep(1)
     
     finally:
-        await browser.close()
-        await pw.stop()
+        await browser.stop()
     
     # Print summary
     print("\n" + "="*70)

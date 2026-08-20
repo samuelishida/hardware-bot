@@ -6,6 +6,8 @@ Tabelas:
   user_alerts      — alertas de preço configurados por usuário no Discord
   tracked_products — produtos monitorados por canal
   scheduler_locks  — prevenção de jobs concorrentes
+  selector_overrides — seletores CSS auto-corrigidos (self-healing, Inc 6)
+  agent_runs       — 1 linha por execução do pipeline MAS (observabilidade, Inc 8)
 
 performance notes:
   - WAL + synchronous=NORMAL: safe for single-process, ~3x faster writes
@@ -79,6 +81,36 @@ async def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_tp_channel
                 ON tracked_products(channel_id, active);
 
+            CREATE TABLE IF NOT EXISTS selector_overrides (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                store_id      TEXT    NOT NULL,
+                element       TEXT    NOT NULL,            -- 'price' | 'title' | 'stock'
+                selector      TEXT    NOT NULL,
+                source        TEXT    NOT NULL DEFAULT 'self_healing',
+                validated_at  TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+                success_count INTEGER NOT NULL DEFAULT 0,
+                failure_count INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(store_id, element)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_so_store_element
+                ON selector_overrides(store_id, element);
+
+            CREATE TABLE IF NOT EXISTS agent_runs (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id      TEXT    NOT NULL,
+                product     TEXT    NOT NULL,
+                started_at  TEXT    NOT NULL,
+                finished_at TEXT,
+                status      TEXT    NOT NULL,              -- ok | partial | error
+                nodes_json  TEXT,                          -- trace serializado
+                error       TEXT,
+                duration_ms INTEGER
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_agent_runs_started
+                ON agent_runs(started_at DESC);
+
         """)
         await db.commit()
         await _auto_migrate(db)
@@ -88,7 +120,18 @@ async def _auto_migrate(db: aiosqlite.Connection) -> None:
     """Detect legacy flat schema and migrate to JSON data column."""
     rows = await db.execute_fetchall("PRAGMA table_info(price_history)")
     col_names = {row[1] for row in rows}
-    if "stock_label" in col_names or "url" in col_names:
+    legacy = {"stock_label", "url", "search_term"}
+    if legacy & col_names:
+        missing = legacy - col_names
+        if missing:
+            # Schema híbrido/parcial: migrar agora quebraria (INSERT referencia
+            # colunas que não existem) e o DROP destruiria a tabela. Pula a
+            # migração em vez de corromper o histórico.
+            logger.warning(
+                f"Legacy price_history schema parcial ({sorted(missing)} ausentes) — "
+                "migração pulada para evitar corrupção; usando schema atual."
+            )
+            return
         logger.warning("Legacy price_history schema detected — migrating to JSON data column")
         await _migrate_price_history(db)
 
@@ -136,7 +179,7 @@ async def get_db():
 
 
 async def get_db_stats() -> dict:
-    """Return price cache statistics and DB file size."""
+    """Return price cache statistics, agent-run count and DB file size."""
     async with get_db() as db:
         rows = await db.execute_fetchall("""
             SELECT
@@ -147,12 +190,19 @@ async def get_db_stats() -> dict:
             FROM price_history
         """)
         r = rows[0]
+        # agent_runs pode não existir em DBs antigos (pré-Inc 8) → degrade para 0
+        try:
+            run_rows = await db.execute_fetchall("SELECT COUNT(*) AS n FROM agent_runs")
+            agent_runs = run_rows[0]["n"] or 0
+        except aiosqlite.OperationalError:
+            agent_runs = 0
     size_bytes = DB_PATH.stat().st_size if DB_PATH.exists() else 0
     return {
         "total_rows": r["total_rows"] or 0,
         "products": r["products"] or 0,
         "oldest": r["oldest"],
         "newest": r["newest"],
+        "agent_runs": agent_runs,
         "db_size_kb": size_bytes // 1024,
     }
 

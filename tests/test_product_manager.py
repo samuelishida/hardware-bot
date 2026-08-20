@@ -55,10 +55,6 @@ class TestProductManager:
         amazon_url = self.pm.get_search_url("amazon", search_term)
         assert "rtx-4060" in amazon_url
         assert "amazon.com.br" in amazon_url
-        
-        ml_url = self.pm.get_search_url("mercadolivre", search_term)
-        assert "rtx-4060" in ml_url
-        assert "mercadolivre.com.br" in ml_url
 
 
 class TestProduct:

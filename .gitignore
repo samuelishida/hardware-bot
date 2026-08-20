@@ -14,6 +14,7 @@ build/
 .venv/
 venv/
 env/
+.deps/
 
 # ── Database ──────────────────────────────────────────────────────────────────
 *.db
@@ -45,7 +46,6 @@ desktop.ini
 # ── Project-specific ──────────────────────────────────────────────────────────
 # Keep .env.example tracked, but not .env
 !.env.example
-ml_cookies.json
 .claude/
 deploy_tmp/
 *.zip

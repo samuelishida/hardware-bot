@@ -117,9 +117,7 @@ You have tools to check prices across Brazilian e-commerce stores.
 
 ## Stores
 
-Amazon BR, KaBuM!, Pichau, Terabyte Shop, Mercado Livre (new + used)
-
-Note: Mercado Livre may be blocked from OCI IPs. Other stores are reliable.
+Amazon BR, KaBuM!, Pichau, Terabyte Shop
 
 ## Language
 

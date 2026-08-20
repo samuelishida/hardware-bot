@@ -56,9 +56,6 @@ class TestFormatStoreName:
     def test_format_terabyte(self):
         assert format_store_name("terabyte") == "Terabyte Shop"
     
-    def test_format_mercadolivre(self):
-        assert format_store_name("mercadolivre") == "Mercado Livre"
-    
     def test_format_amazon(self):
         assert format_store_name("amazon") == "Amazon BR"
     

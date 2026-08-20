@@ -67,7 +67,7 @@ _HERMES_CORE_TOOLS = [
     "kanban_comment", "kanban_create", "kanban_link",
     # PreçoBot — Brazilian e-commerce price tracking (gated on PRECOSBOT_PATH via check_fn)
     "precosbot_check", "precosbot_latest", "precosbot_history",
-    "precosbot_list_tracked", "precosbot_db_stats",
+    "precosbot_list_tracked", "precosbot_db_stats", "precosbot_agent",
 ]
 
 

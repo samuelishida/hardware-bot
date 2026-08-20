@@ -55,6 +55,12 @@ source venv/bin/activate
 echo "   Installing dependencies..."
 pip install --upgrade pip
 pip install -r requirements.txt
+echo "   Installing Lightpanda binary (if missing)..."
+if ! command -v lightpanda &>/dev/null; then
+    curl -sL -o /usr/local/bin/lightpanda \
+      https://github.com/lightpanda-io/browser/releases/download/nightly/lightpanda-x86_64-linux
+    chmod +x /usr/local/bin/lightpanda
+fi
 echo "   ✅ Deployment complete!"
 '@
 

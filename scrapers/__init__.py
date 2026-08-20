@@ -9,18 +9,15 @@ from scrapers.kabum import KabumScraper
 from scrapers.pichau import PichauScraper
 from scrapers.terabyte import TeraScraper
 from scrapers.amazon import AmazonScraper
-from scrapers.mercadolivre import MercadoLivreScraper, MercadoLivreUsadoScraper
 from scrapers.olx import OLXScraper
 from scrapers.enjoei import EnjoeiScraper
 
-# All scrapers that need a shared Playwright browser instance
+# All scrapers that need a shared Lightpanda browser instance
 BROWSER_SCRAPERS = [
     KabumScraper,
     PichauScraper,
     TeraScraper,
     AmazonScraper,
-    MercadoLivreScraper,
-    MercadoLivreUsadoScraper,
     OLXScraper,
     EnjoeiScraper,
 ]
