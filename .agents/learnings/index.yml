@@ -1,0 +1,6 @@
+mas-review-fixes:
+  file: mas-review-fixes.md
+  description: Read before touching agents/ (orchestrator state mutation, deal_node baseline, llm.py Ollama payload) or agent_api.py CLI days parsing.
+remove-mercadolivre:
+  file: remove-mercadolivre.md
+  description: Read before removing a store/scraper or editing the scraper registry (scrapers/__init__.py, config.py). Inventory ALL name spellings incl. comments/docstrings/prints and deploy-script heredocs; verify with a broad rg.
